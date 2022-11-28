@@ -9,8 +9,8 @@ use crate::fix::FixReturn;
 use crate::qualification::QualificationCheckId;
 use crate::workflow::{CommandOutput, CommandReturn};
 use crate::{
-    BillingAccountId, ChangeSetPk, ConfirmationPrototypeError, DalContext, HistoryActor,
-    ReadTenancy, SchemaPk, StandardModelError,
+    BillingAccountId, ChangeSetPk, ComponentId, ConfirmationPrototypeError, DalContext,
+    HistoryActor, ReadTenancy, SchemaPk, StandardModelError,
 };
 use si_data_nats::NatsError;
 
@@ -45,6 +45,13 @@ pub enum WsPayload {
     FixBatchReturn(FixBatchReturn),
     FixReturn(FixReturn),
     ConfirmationStatusUpdate(ConfirmationStatusUpdate),
+    StatusUpdate(StatusUpdate),
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusUpdate {
+    component_id: ComponentId,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -80,6 +87,10 @@ impl WsEvent {
         }
     }
 
+    pub fn status_update(ctx: &DalContext, component_id: ComponentId) -> Self {
+        WsEvent::new(ctx, WsPayload::StatusUpdate(StatusUpdate { component_id }))
+    }
+
     pub fn billing_account_id_from_tenancy(tenancy: &ReadTenancy) -> Vec<BillingAccountId> {
         tenancy.billing_accounts().into()
     }
@@ -88,6 +99,15 @@ impl WsEvent {
         for billing_account_id in self.billing_account_ids.iter() {
             let subject = format!("si.billing_account_id.{}.event", billing_account_id);
             ctx.nats_txn().publish(subject, &self).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn publish_immediately(&self, ctx: &DalContext) -> WsEventResult<()> {
+        for billing_account_id in self.billing_account_ids.iter() {
+            let subject = format!("si.billing_account_id.{}.event", billing_account_id);
+            let msg_bytes = serde_json::to_vec(self)?;
+            ctx.nats_conn().publish(subject, msg_bytes).await?;
         }
         Ok(())
     }

@@ -34,7 +34,7 @@ use crate::{
     FuncBackendKind, FuncBackendResponseType, FuncBinding, FuncError, HistoryEventError, IndexMap,
     InternalProvider, InternalProviderId, Prop, PropError, PropId, PropKind, ReadTenancyError,
     SchemaId, SchemaVariantId, StandardModel, StandardModelError, Timestamp, TransactionsError,
-    Visibility, WriteTenancy,
+    Visibility, WriteTenancy, WsEvent, WsEventError,
 };
 
 pub mod view;
@@ -177,6 +177,8 @@ pub enum AttributeValueError {
     SchemaVariantMissing,
     #[error("schema missing in context")]
     SchemaMissing,
+    #[error("ws event publishing error")]
+    WsEvent(#[from] WsEventError),
 }
 
 /// This is the function that set the attribute value, along with the function's prototype
@@ -714,6 +716,10 @@ impl AttributeValue {
             ).await?;
 
         let new_attribute_value_id: AttributeValueId = row.try_get("new_attribute_value_id")?;
+
+        WsEvent::status_update(ctx, context.component_id())
+            .publish_immediately(ctx)
+            .await?;
 
         ctx.enqueue_job(DependentValuesUpdate::new(ctx, new_attribute_value_id))
             .await;
