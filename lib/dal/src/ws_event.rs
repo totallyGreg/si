@@ -9,8 +9,8 @@ use crate::fix::FixReturn;
 use crate::qualification::QualificationCheckId;
 use crate::workflow::{CommandOutput, CommandReturn};
 use crate::{
-    BillingAccountId, ChangeSetPk, ComponentId, ConfirmationPrototypeError, DalContext,
-    HistoryActor, ReadTenancy, SchemaPk, StandardModelError,
+    AttributeValueId, BillingAccountId, ChangeSetPk, ComponentId, ConfirmationPrototypeError,
+    DalContext, HistoryActor, ReadTenancy, SchemaPk, StandardModelError,
 };
 use si_data_nats::NatsError;
 
@@ -50,8 +50,39 @@ pub enum WsPayload {
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum StatusState {
+    Queued,
+    Running,
+    Completed,
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct StatusUpdate {
+    status: String,
+    values: Vec<AttributeValueStatusUpdate>,
+}
+
+impl StatusUpdate {
+    pub fn new(status: String, values: Vec<AttributeValueStatusUpdate>) -> Self {
+        Self { status, values }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Eq, Hash, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AttributeValueStatusUpdate {
+    value_id: AttributeValueId,
     component_id: ComponentId,
+}
+
+impl AttributeValueStatusUpdate {
+    pub fn new(value_id: AttributeValueId, component_id: ComponentId) -> Self {
+        Self {
+            value_id,
+            component_id,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -87,9 +118,9 @@ impl WsEvent {
         }
     }
 
-    pub fn status_update(ctx: &DalContext, component_id: ComponentId) -> Self {
-        WsEvent::new(ctx, WsPayload::StatusUpdate(StatusUpdate { component_id }))
-    }
+    // pub fn status_update(ctx: &DalContext, component_id: ComponentId) -> Self {
+    //     WsEvent::new(ctx, WsPayload::StatusUpdate(StatusUpdate { component_id }))
+    // }
 
     pub fn billing_account_id_from_tenancy(tenancy: &ReadTenancy) -> Vec<BillingAccountId> {
         tenancy.billing_accounts().into()

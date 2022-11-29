@@ -8,8 +8,9 @@ use tokio::task::JoinSet;
 use crate::{
     job::consumer::{FaktoryJobInfo, JobConsumer, JobConsumerError, JobConsumerResult},
     job::producer::{JobMeta, JobProducer, JobProducerResult},
+    ws_event::AttributeValueStatusUpdate,
     AccessBuilder, AttributeValue, AttributeValueError, AttributeValueId, AttributeValueResult,
-    DalContext, StandardModel, Visibility, WsEvent,
+    ComponentId, DalContext, StandardModel, Visibility, WsEvent,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -116,6 +117,11 @@ impl JobConsumer for DependentValuesUpdate {
             self.attribute_value_id, &dependency_graph
         );
 
+        // TODO(fnichol): now we know all the dependent value ids and their dependents--we should
+        // know the total (i.e. n) of the attribute value updates
+
+        // (ComponentId, ValueId, Status)
+
         let mut update_tasks = JoinSet::new();
 
         loop {
@@ -143,6 +149,25 @@ impl JobConsumer for DependentValuesUpdate {
 
                 result
             });
+
+            let mut values_to_components: HashMap<AttributeValueId, ComponentId> = HashMap::new();
+            let mut queued_values = Vec::new();
+
+            for attribute_value_id in satisfied_dependencies.iter() {
+                let attribute_value = AttributeValue::get_by_id(ctx, attribute_value_id)
+                    .await?
+                    .ok_or_else(|| {
+                        AttributeValueError::NotFound(*attribute_value_id, *ctx.visibility())
+                    })?;
+                let component_id = attribute_value.context.component_id();
+
+                values_to_components.insert(*attribute_value_id, component_id);
+                queued_values.push(AttributeValueStatusUpdate::new(
+                    *attribute_value.id(),
+                    component_id,
+                ));
+            }
+            // TODO(fnichol): add batch in-process event
 
             for id in satisfied_dependencies {
                 let attribute_value = AttributeValue::get_by_id(ctx, &id)

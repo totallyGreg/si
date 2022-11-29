@@ -717,9 +717,8 @@ impl AttributeValue {
 
         let new_attribute_value_id: AttributeValueId = row.try_get("new_attribute_value_id")?;
 
-        WsEvent::status_update(ctx, context.component_id())
-            .publish_immediately(ctx)
-            .await?;
+        // TODO(fnichol): we might want to fire off a status even at this point, however we've
+        // already updated the initial attribute value, so is there much value?
 
         ctx.enqueue_job(DependentValuesUpdate::new(ctx, new_attribute_value_id))
             .await;
