@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    convert::TryFrom,
-};
+use std::{collections::HashMap, convert::TryFrom};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -105,6 +102,8 @@ impl JobConsumer for DependentValuesUpdate {
             })?;
         let mut dependency_graph = source_attribute_value.dependent_value_graph(ctx).await?;
 
+        info!("{}", dependency_graph_to_dot(ctx, &dependency_graph).await?);
+
         // NOTE(nick,jacob): uncomment this for debugging.
         // Save printed output to a file and execute the following: "dot <file> -Tsvg -o <newfile>.svg"
         // println!("{}", dependency_graph_to_dot(ctx, &dependency_graph).await?);
@@ -120,28 +119,23 @@ impl JobConsumer for DependentValuesUpdate {
             self.attribute_value_id, &dependency_graph
         );
 
-        let mut unique_values = HashSet::new();
-        for (key, values) in dependency_graph.iter() {
-            unique_values.insert(*key);
-            for value in values {
-                unique_values.insert(*value);
-            }
-        }
+        info!("{}", dependency_graph_to_dot(ctx, &dependency_graph).await?);
+
         let mut values_to_components: HashMap<AttributeValueId, AttributeValueStatusUpdate> =
             HashMap::new();
         let mut queued_values = Vec::new();
 
-        for value_id in unique_values {
-            let attribute_value = AttributeValue::get_by_id(ctx, &value_id)
+        for value_id in dependency_graph.keys() {
+            let attribute_value = AttributeValue::get_by_id(ctx, value_id)
                 .await?
-                .ok_or_else(|| AttributeValueError::NotFound(value_id, *ctx.visibility()))?;
+                .ok_or_else(|| AttributeValueError::NotFound(*value_id, *ctx.visibility()))?;
             let component_id = attribute_value.context.component_id();
 
             values_to_components.insert(
-                value_id,
-                AttributeValueStatusUpdate::new(value_id, component_id),
+                *value_id,
+                AttributeValueStatusUpdate::new(*value_id, component_id),
             );
-            queued_values.push(AttributeValueStatusUpdate::new(value_id, component_id));
+            queued_values.push(AttributeValueStatusUpdate::new(*value_id, component_id));
         }
 
         WsEvent::status_update(ctx, StatusState::Queued, queued_values)
@@ -214,10 +208,23 @@ impl JobConsumer for DependentValuesUpdate {
                 Some(future_result) => {
                     // We get back a `Some<Result<Result<..>>>`. We've already unwrapped the
                     // `Some`, the outermost `Result` is a `JoinError` to let us know if
-                    // anything went wrong in joining the task. The innermost `Result` is
-                    // the one we're really interested in the contents of, which is why there
-                    // is the `??`.
-                    let finished_id = future_result??;
+                    // anything went wrong in joining the task.
+                    let finished_id = match future_result {
+                        // We have successfully updated a value
+                        Ok(Ok(finished_id)) => finished_id,
+                        // There was an error (with our code) when updating the value
+                        Ok(Err(err)) => {
+                            warn!(error = ?err, "error updating value");
+                            return Err(err.into());
+                        }
+                        // There was a Tokio JoinSet error when joining the task back (i.e. likely
+                        // I/O error)
+                        Err(err) => {
+                            warn!(error = ?err, "error when joining update task");
+                            return Err(err.into());
+                        }
+                    };
+
                     // Remove the `AttributeValueId` that just finished from the list of
                     // unsatisfied dependencies of all entries, so we can check what work
                     // has been unblocked.
@@ -253,6 +260,7 @@ impl JobConsumer for DependentValuesUpdate {
 
         // Send a completed status for all value/component ids that didn't need to be
         // queued/completed because they didn't have their dependencies met.
+        dbg!(dependency_graph);
         WsEvent::status_update(
             ctx,
             StatusState::Completed,
