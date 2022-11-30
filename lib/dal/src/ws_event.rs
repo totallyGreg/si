@@ -59,17 +59,11 @@ pub enum StatusState {
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusUpdate {
-    status: String,
+    status: StatusState,
     values: Vec<AttributeValueStatusUpdate>,
 }
 
-impl StatusUpdate {
-    pub fn new(status: String, values: Vec<AttributeValueStatusUpdate>) -> Self {
-        Self { status, values }
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Eq, Hash, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, Eq, Hash, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AttributeValueStatusUpdate {
     value_id: AttributeValueId,
@@ -118,9 +112,16 @@ impl WsEvent {
         }
     }
 
-    // pub fn status_update(ctx: &DalContext, component_id: ComponentId) -> Self {
-    //     WsEvent::new(ctx, WsPayload::StatusUpdate(StatusUpdate { component_id }))
-    // }
+    pub fn status_update(
+        ctx: &DalContext,
+        status: StatusState,
+        values: Vec<AttributeValueStatusUpdate>,
+    ) -> Self {
+        WsEvent::new(
+            ctx,
+            WsPayload::StatusUpdate(StatusUpdate { status, values }),
+        )
+    }
 
     pub fn billing_account_id_from_tenancy(tenancy: &ReadTenancy) -> Vec<BillingAccountId> {
         tenancy.billing_accounts().into()

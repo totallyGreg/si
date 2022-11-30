@@ -34,7 +34,7 @@ use crate::{
     FuncBackendKind, FuncBackendResponseType, FuncBinding, FuncError, HistoryEventError, IndexMap,
     InternalProvider, InternalProviderId, Prop, PropError, PropId, PropKind, ReadTenancyError,
     SchemaId, SchemaVariantId, StandardModel, StandardModelError, Timestamp, TransactionsError,
-    Visibility, WriteTenancy, WsEvent, WsEventError,
+    Visibility, WriteTenancy, WsEventError,
 };
 
 pub mod view;

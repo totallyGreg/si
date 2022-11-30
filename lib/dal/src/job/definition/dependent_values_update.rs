@@ -1,4 +1,7 @@
-use std::{collections::HashMap, convert::TryFrom};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -8,9 +11,9 @@ use tokio::task::JoinSet;
 use crate::{
     job::consumer::{FaktoryJobInfo, JobConsumer, JobConsumerError, JobConsumerResult},
     job::producer::{JobMeta, JobProducer, JobProducerResult},
-    ws_event::AttributeValueStatusUpdate,
+    ws_event::{AttributeValueStatusUpdate, StatusState},
     AccessBuilder, AttributeValue, AttributeValueError, AttributeValueId, AttributeValueResult,
-    ComponentId, DalContext, StandardModel, Visibility, WsEvent,
+    DalContext, StandardModel, Visibility, WsEvent,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -117,10 +120,33 @@ impl JobConsumer for DependentValuesUpdate {
             self.attribute_value_id, &dependency_graph
         );
 
-        // TODO(fnichol): now we know all the dependent value ids and their dependents--we should
-        // know the total (i.e. n) of the attribute value updates
+        let mut unique_values = HashSet::new();
+        for (key, values) in dependency_graph.iter() {
+            unique_values.insert(*key);
+            for value in values {
+                unique_values.insert(*value);
+            }
+        }
+        let mut values_to_components: HashMap<AttributeValueId, AttributeValueStatusUpdate> =
+            HashMap::new();
+        let mut queued_values = Vec::new();
 
-        // (ComponentId, ValueId, Status)
+        for value_id in unique_values {
+            let attribute_value = AttributeValue::get_by_id(ctx, &value_id)
+                .await?
+                .ok_or_else(|| AttributeValueError::NotFound(value_id, *ctx.visibility()))?;
+            let component_id = attribute_value.context.component_id();
+
+            values_to_components.insert(
+                value_id,
+                AttributeValueStatusUpdate::new(value_id, component_id),
+            );
+            queued_values.push(AttributeValueStatusUpdate::new(value_id, component_id));
+        }
+
+        WsEvent::status_update(ctx, StatusState::Queued, queued_values)
+            .publish_immediately(ctx)
+            .await?;
 
         let mut update_tasks = JoinSet::new();
 
@@ -150,24 +176,28 @@ impl JobConsumer for DependentValuesUpdate {
                 result
             });
 
-            let mut values_to_components: HashMap<AttributeValueId, ComponentId> = HashMap::new();
-            let mut queued_values = Vec::new();
-
-            for attribute_value_id in satisfied_dependencies.iter() {
-                let attribute_value = AttributeValue::get_by_id(ctx, attribute_value_id)
-                    .await?
-                    .ok_or_else(|| {
-                        AttributeValueError::NotFound(*attribute_value_id, *ctx.visibility())
-                    })?;
-                let component_id = attribute_value.context.component_id();
-
-                values_to_components.insert(*attribute_value_id, component_id);
-                queued_values.push(AttributeValueStatusUpdate::new(
-                    *attribute_value.id(),
-                    component_id,
-                ));
+            // If there are no more dependencies we can early break out of the loop, saving some
+            // extra ws event calculations
+            if satisfied_dependencies.is_empty() {
+                break;
             }
-            // TODO(fnichol): add batch in-process event
+
+            let mut running_values = Vec::new();
+            for value_id in satisfied_dependencies.iter() {
+                running_values.push(
+                    *values_to_components
+                        .get(value_id)
+                        // All attribute values have been iterated their component ids should be in
+                        // the hashmap, otherwise this is a programmer bug!
+                        .expect("component id not found for value id"),
+                );
+            }
+
+            // Send a batched running status with all value/component ids that are being enqueued
+            // for processing
+            WsEvent::status_update(ctx, StatusState::Running, running_values)
+                .publish_immediately(ctx)
+                .await?;
 
             for id in satisfied_dependencies {
                 let attribute_value = AttributeValue::get_by_id(ctx, &id)
@@ -194,6 +224,19 @@ impl JobConsumer for DependentValuesUpdate {
                     for (_, val) in dependency_graph.iter_mut() {
                         val.retain(|&id| id != finished_id);
                     }
+
+                    // Send a completed status for this value and *remove* it from the hash
+                    WsEvent::status_update(
+                        ctx,
+                        StatusState::Completed,
+                        vec![values_to_components
+                            .remove(&finished_id)
+                            // All attribute values have been iterated their component ids should be in
+                            // the hashmap, otherwise this is a programmer bug!
+                            .expect("component id not found for value id")],
+                    )
+                    .publish_immediately(ctx)
+                    .await?;
                 }
                 // If we get `None` back from the `JoinSet` that means that there are no
                 // further tasks in the `JoinSet` for us to wait on. This should only happen
@@ -207,6 +250,16 @@ impl JobConsumer for DependentValuesUpdate {
                 None => break,
             }
         }
+
+        // Send a completed status for all value/component ids that didn't need to be
+        // queued/completed because they didn't have their dependencies met.
+        WsEvent::status_update(
+            ctx,
+            StatusState::Completed,
+            values_to_components.values().copied().collect(),
+        )
+        .publish_immediately(ctx)
+        .await?;
 
         WsEvent::change_set_written(ctx).publish(ctx).await?;
 
