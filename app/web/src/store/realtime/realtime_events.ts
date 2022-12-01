@@ -1,8 +1,14 @@
 // This is a map of valid websocket events to the shape of their payload
 // used in the subscribe fn to limit valid event names and set callback payload type
 
+import { ComponentId } from "../components.store";
 import { FixStatus } from "../fixes/fixes.store";
-import { GlobalUpdateStatus, ComponentUpdateStatus } from "../status.store";
+import {
+  GlobalUpdateStatus,
+  ComponentUpdateStatus,
+  AttributeValueId,
+  AttributeValueStatus,
+} from "../status.store";
 
 // TODO: a few of these use the same id objects (ex: componentId)
 // but in a few cases the changeset ID may have been accidentally left out?
@@ -58,8 +64,14 @@ export type WsEventPayloadMap = {
     status: FixStatus;
   };
 
-  UpdateStatus: {
-    global: GlobalUpdateStatus;
-    components?: ComponentUpdateStatus[];
+  // Old fake status update
+  // UpdateStatus: {
+  //   global: GlobalUpdateStatus;
+  //   components?: ComponentUpdateStatus[];
+  // };
+
+  StatusUpdate: {
+    status: AttributeValueStatus;
+    values: { componentId: ComponentId; valueId: AttributeValueId }[];
   };
 };

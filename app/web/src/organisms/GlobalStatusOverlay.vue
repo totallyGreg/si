@@ -31,7 +31,7 @@ const summaryMessage = computed(() => {
 });
 
 const progressPercent = computed(() => {
-  if (statusStore.globalStatus?.stepsCountTotal === undefined) return undefined;
+  if (!statusStore.globalStatus?.stepsCountTotal) return undefined;
   return (
     (statusStore.globalStatus?.stepsCountCurrent || 0) /
     (statusStore.globalStatus?.stepsCountTotal || 1)

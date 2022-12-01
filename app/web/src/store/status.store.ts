@@ -48,6 +48,21 @@ export type ComponentUpdateStatus = {
       };
 };
 
+export type AttributeValueStatus = "queued" | "running" | "completed";
+
+export type AttributeValueId = number;
+
+export type UpdateStatusTimestamps = {
+  queuedAt: Date;
+  runningAt?: Date;
+  completedAt?: Date;
+};
+
+export type ComponentStatusDetails = {
+  lastUpdatedAt?: Date;
+  timestampsByValueId: Record<AttributeValueId, UpdateStatusTimestamps>;
+};
+
 export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
   // this needs some work... but we'll probably want a way to force using HEAD
   // so we can load HEAD data in some scenarios while also loading a change set?
@@ -62,24 +77,94 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
   return addStoreHooks(
     defineStore(`cs${changeSetId || "NONE"}/status`, {
       state: () => ({
-        globalStatus: {} as Partial<GlobalUpdateStatus> | null,
-        componentStatusById: {} as Record<ComponentId, ComponentUpdateStatus>,
+        valueStatusTimestampsByComponentId: {} as Record<
+          ComponentId,
+          ComponentStatusDetails
+        >,
       }),
       getters: {
-        latestComponentUpdate(state) {
+        latestComponentUpdate(): ComponentUpdateStatus | undefined {
           const sortedUpdates = _.orderBy(
-            _.values(state.componentStatusById),
+            _.values(this.componentStatusById),
             (cu) => cu.lastStepCompletedAt,
           );
           return sortedUpdates.pop();
         },
+        globalStatus(): GlobalUpdateStatus {
+          const isUpdating = _.some(
+            this.componentStatusById,
+            (status) => status.isUpdating,
+          );
+          const stepsCountCurrent = _.sumBy(
+            _.values(this.componentStatusById),
+            (status) => status.stepsCountCurrent,
+          );
+          const stepsCountTotal = _.sumBy(
+            _.values(this.componentStatusById),
+            (status) => status.stepsCountTotal,
+          );
+          const componentsCountCurrent = _.filter(
+            this.componentStatusById,
+            (status) => !status.isUpdating,
+          ).length;
+          const componentsCountTotal = _.size(this.componentStatusById);
+
+          return {
+            isUpdating,
+            stepsCountCurrent,
+            stepsCountTotal,
+            componentsCountCurrent,
+            componentsCountTotal,
+            // TODO(wendy) - fix these
+            updateStartedAt: new Date(),
+            lastStepCompletedAt: new Date(),
+          };
+        },
+        valueStatusesByComponentId(state) {
+          return _.mapValues(
+            state.valueStatusTimestampsByComponentId,
+            (valueStatusesById) =>
+              _.mapValues(
+                valueStatusesById.timestampsByValueId,
+                (timestamps) => {
+                  if (timestamps.completedAt) return "completed";
+                  else if (timestamps.runningAt) return "running";
+                  else return "queued";
+                },
+              ),
+          );
+        },
+        componentStatusById(): Record<ComponentId, ComponentUpdateStatus> {
+          return _.mapValues(
+            this.valueStatusesByComponentId,
+            (valueStatusesById, componentId) => {
+              const stepsCountTotal = _.values(valueStatusesById).length;
+              const stepsCountCurrent = _.filter(
+                valueStatusesById,
+                (status) => status === "completed",
+              ).length;
+              const isUpdating = stepsCountCurrent < stepsCountTotal;
+              const lastStepCompletedAt =
+                this.valueStatusTimestampsByComponentId[parseInt(componentId)]
+                  ?.lastUpdatedAt || new Date(); // TODO(wendy) - fix
+
+              return {
+                componentId: parseInt(componentId),
+                isUpdating,
+                stepsCountCurrent,
+                stepsCountTotal,
+                statusMessage: isUpdating ? "updating" : "updated", // TODO(wendy) - more details here?
+                lastStepCompletedAt,
+              };
+            },
+          );
+        },
       },
       actions: {
         async FETCH_CURRENT_STATUS() {
-          this.globalStatus = {
-            isUpdating: false,
-          };
-
+          // this.globalStatus = {
+          //   isUpdating: false,
+          // };
           // return new ApiRequest<{
           //   global: GlobalUpdateStatus;
           //   components: Record<ComponentId, ComponentUpdateStatus>;
@@ -97,80 +182,13 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
           // });
         },
 
-        async triggerMockUpdateFlow(componentIds: ComponentId[]) {
-          const realtimeStore = useRealtimeStore();
-          const updateStartedAt = new Date();
-
-          const STEPS_PER_COMPONENT = 3;
-
-          let i = 0;
-          let componentsCountCurrent = 0;
-          const componentsCountTotal = componentIds.length;
-          const stepsCountTotal = STEPS_PER_COMPONENT * componentsCountTotal;
-          let stepsCountCurrent = 0;
-          // kick these off in parallel, with an initial delay to make the steps happen in series-ish
-          await async.each(componentIds, async (componentId) => {
-            await promiseDelay(i++ * 250);
-            let componentStepsCountCurrent = 0;
-            let componentComplete = false;
-
-            for (const step of [
-              {
-                message: "Updating attributes",
-                delay: 500,
-                stepComplete: false,
-              },
-              { message: "Attributes updated", delay: 50, stepComplete: true },
-              { message: "Generating code", delay: 2000, stepComplete: false },
-              { message: "Code generated", delay: 50, stepComplete: true },
-              {
-                message: "Running qualifications",
-                delay: 4000,
-                complete: false,
-              },
-              { message: "Component updated", delay: 0, stepComplete: true },
-            ]) {
-              if (step.stepComplete) {
-                stepsCountCurrent++;
-                componentStepsCountCurrent++;
-                if (componentStepsCountCurrent === STEPS_PER_COMPONENT) {
-                  componentComplete = true;
-                  componentsCountCurrent++;
-                }
-              }
-
-              const currentUpdateAt = new Date();
-
-              realtimeStore.mockEvent("UpdateStatus", {
-                global: {
-                  isUpdating: componentsCountCurrent < componentsCountTotal,
-                  componentsCountCurrent,
-                  componentsCountTotal,
-                  stepsCountCurrent,
-                  stepsCountTotal,
-                  updateStartedAt, // NOTE - will probably be coming through as strings and need conversion...
-                  lastStepCompletedAt: currentUpdateAt,
-                },
-                components: [
-                  {
-                    componentId,
-                    statusMessage: step.message,
-                    isUpdating: !componentComplete,
-                    lastStepCompletedAt: currentUpdateAt,
-                    stepsCountCurrent: componentStepsCountCurrent,
-                    stepsCountTotal: STEPS_PER_COMPONENT,
-                    byActor: {
-                      type: "user",
-                      label: "theo",
-                      id: 100,
-                    },
-                  },
-                ],
-              });
-
-              await promiseDelay(step.delay + step.delay * Math.random());
-            }
-          });
+        checkCompletedCleanup() {
+          if (!this.globalStatus.isUpdating) {
+            // if we're done updating, clear the timestamps
+            _.each(this.valueStatusTimestampsByComponentId, (component) => {
+              component.timestampsByValueId = {};
+            });
+          }
         },
       },
       onActivated() {
@@ -179,22 +197,60 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
         this.FETCH_CURRENT_STATUS();
 
         const realtimeStore = useRealtimeStore();
+        let cleanupTimeout: Timeout;
 
         realtimeStore.subscribe(this.$id, `changeset/${changeSetId}`, [
           {
-            eventType: "UpdateStatus",
+            eventType: "StatusUpdate",
             callback: (update) => {
-              this.globalStatus = update.global;
-              if (update.components) {
-                _.each(update.components, (cu) => {
-                  this.componentStatusById[cu.componentId] = cu;
-                });
+              const now = new Date();
+              update.values.forEach(({ componentId, valueId }) => {
+                this.valueStatusTimestampsByComponentId[componentId] ||= {
+                  timestampsByValueId: {},
+                }; // if the given componentId doesn't have a corresponding object yet, make one
+                const component =
+                  this.valueStatusTimestampsByComponentId[componentId];
+
+                // If we don't have a timestamp for an earlier step, we set it to the same one as the current step
+                // If the status is queued, clear other statuses
+                if (
+                  update.status === "queued" ||
+                  !component.timestampsByValueId[valueId]
+                ) {
+                  component.timestampsByValueId[valueId] = { queuedAt: now };
+                }
+                if (update.status === "completed") {
+                  component.timestampsByValueId[valueId].completedAt = now;
+                  component.timestampsByValueId[valueId].runningAt ||= now;
+                  component.lastUpdatedAt = now;
+                } else if (update.status === "running") {
+                  component.timestampsByValueId[valueId].runningAt = now;
+                  delete component.timestampsByValueId[valueId].completedAt;
+                }
+              });
+              if (update.status === "completed") {
+                if (cleanupTimeout) clearTimeout(cleanupTimeout);
+                cleanupTimeout = setTimeout(this.checkCompletedCleanup, 2000);
               }
             },
           },
+
+          // Old fake object
+          // {
+          //   eventType: "UpdateStatus",
+          //   callback: (update) => {
+          //     this.globalStatus = update.global;
+          //     if (update.components) {
+          //       _.each(update.components, (cu) => {
+          //         this.componentStatusById[cu.componentId] = cu;
+          //       });
+          //     }
+          //   },
+          // },
         ]);
 
         return () => {
+          clearTimeout(cleanupTimeout);
           realtimeStore.unsubscribe(this.$id);
         };
       },

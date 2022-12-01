@@ -191,17 +191,15 @@ export const useComponentAttributesStore = () => {
             onSuccess() {
               // TODO: remove all of this...
               // TRIGGERING MOCK UPDATE STATUS FLOW
-              const componentsStore = useComponentsStore();
-              const statusStore = useStatusStore();
-
-              if (componentsStore.selectedComponentId) {
-                const updatedComponentIds =
-                  componentsStore.getDependentComponents(
-                    componentsStore.selectedComponentId,
-                  );
-
-                statusStore.triggerMockUpdateFlow(updatedComponentIds);
-              }
+              // const componentsStore = useComponentsStore();
+              // const statusStore = useStatusStore();
+              // if (componentsStore.selectedComponentId) {
+              //   const updatedComponentIds =
+              //     componentsStore.getDependentComponents(
+              //       componentsStore.selectedComponentId,
+              //     );
+              //   statusStore.triggerMockUpdateFlow(updatedComponentIds);
+              // }
             },
           });
         },
