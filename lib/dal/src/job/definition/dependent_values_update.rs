@@ -170,12 +170,6 @@ impl JobConsumer for DependentValuesUpdate {
                 result
             });
 
-            // If there are no more dependencies we can early break out of the loop, saving some
-            // extra ws event calculations
-            if satisfied_dependencies.is_empty() {
-                break;
-            }
-
             let mut running_values = Vec::new();
             for value_id in satisfied_dependencies.iter() {
                 running_values.push(
@@ -187,11 +181,13 @@ impl JobConsumer for DependentValuesUpdate {
                 );
             }
 
-            // Send a batched running status with all value/component ids that are being enqueued
-            // for processing
-            WsEvent::status_update(ctx, StatusState::Running, running_values)
-                .publish_immediately(ctx)
-                .await?;
+            if !satisfied_dependencies.is_empty() {
+                // Send a batched running status with all value/component ids that are being enqueued
+                // for processing
+                WsEvent::status_update(ctx, StatusState::Running, running_values)
+                    .publish_immediately(ctx)
+                    .await?;
+            }
 
             for id in satisfied_dependencies {
                 let attribute_value = AttributeValue::get_by_id(ctx, &id)
