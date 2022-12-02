@@ -10,7 +10,8 @@ use crate::{
     job::producer::{JobMeta, JobProducer, JobProducerResult},
     ws_event::{AttributeValueStatusUpdate, StatusState, StatusValueKind},
     AccessBuilder, AttributeValue, AttributeValueError, AttributeValueId, AttributeValueResult,
-    DalContext, StandardModel, Visibility, WsEvent, FuncBinding, FuncBindingError, FuncBackendKind,
+    DalContext, ExternalProvider, FuncBackendKind, FuncBinding, FuncBindingError, Prop,
+    SchemaVariant, StandardModel, Visibility, WsEvent,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -123,7 +124,6 @@ impl JobConsumer for DependentValuesUpdate {
 
         let mut values_to_components: HashMap<AttributeValueId, AttributeValueStatusUpdate> =
             HashMap::new();
-        let mut queued_values = Vec::new();
 
         for value_id in dependency_graph.keys() {
             let attribute_value = AttributeValue::get_by_id(ctx, value_id)
@@ -131,23 +131,72 @@ impl JobConsumer for DependentValuesUpdate {
                 .ok_or_else(|| AttributeValueError::NotFound(*value_id, *ctx.visibility()))?;
             let component_id = attribute_value.context.component_id();
 
+            let mut value_kind = StatusValueKind::Attribute;
 
-            let func_binding = FuncBinding::get_by_id(ctx, &attribute_value.func_binding_id())
-                .await?
-                .ok_or_else(|| AttributeValueError::NotFound(*value_id, *ctx.visibility()))?; // TODO wrong kind of error
+            // TODO: only look up root prop once per component--take this out of the loop
 
-            let value_kind = match func_binding.backend_kind() {
-                FuncBackendKind::JsCodeGeneration => StatusValueKind::CodeGen,
-                _ => StatusValueKind::Attribute,
-            };
+            // does this value look like an output socket?
+            if attribute_value
+                .context
+                .is_least_specific_field_kind_external_provider()
+                .expect("TODO: attr context is invalid")
+            {
+                let external_provider = ExternalProvider::get_by_id(
+                    ctx,
+                    &attribute_value.context.external_provider_id(),
+                )
+                .await
+                .expect("TODO: convert external provider err")
+                .expect("TODO: external provider not found");
+                let socket = external_provider
+                    .sockets(ctx)
+                    .await
+                    .expect("TODO: failed to find sockets")
+                    .pop()
+                    .expect("TODO: no sockets in vec");
+                value_kind = StatusValueKind::OutputSocket(*socket.id());
+            }
+            // does this value look like an input socket?
+            if attribute_value
+                .context
+                .is_least_specific_field_kind_internal_provider()
+                .expect("TODO: attr context is invalid")
+            {}
+            // does this value correspond to a code generation function?
+            if attribute_value.context.prop_id().is_some() {
+                let root_prop =
+                    SchemaVariant::root_prop(ctx, attribute_value.context.schema_variant_id())
+                        .await
+                        .expect("TODO: convert error type");
+                let prop = Prop::get_by_id(ctx, &dbg!(attribute_value.context).prop_id())
+                    .await
+                    .expect("TODO: error fetching prop")
+                    .expect("TODO: prop not found ");
+                if let Some(parent_prop) = prop
+                    .parent_prop(ctx)
+                    .await
+                    .expect("TODO prop error convert")
+                {
+                    if let Some(grandparent_prop) = parent_prop
+                        .parent_prop(ctx)
+                        .await
+                        .expect("TODO: prop error convert")
+                    {
+                        if grandparent_prop.id() == &root_prop.code_prop_id {
+                            dbg!(grandparent_prop);
+                            value_kind = StatusValueKind::CodeGen;
+                        }
+                    }
+                }
+            }
 
             values_to_components.insert(
                 *value_id,
                 AttributeValueStatusUpdate::new(*value_id, component_id, value_kind),
             );
-            // TODO: should be able to copy values_to_components without pushing into new array
-            queued_values.push(AttributeValueStatusUpdate::new(*value_id, component_id, value_kind));
         }
+
+        let queued_values = values_to_components.values().copied().collect();
 
         WsEvent::status_update(ctx, StatusState::Queued, queued_values)
             .publish_immediately(ctx)

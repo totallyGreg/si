@@ -10,7 +10,7 @@ use crate::qualification::QualificationCheckId;
 use crate::workflow::{CommandOutput, CommandReturn};
 use crate::{
     AttributeValueId, BillingAccountId, ChangeSetPk, ComponentId, ConfirmationPrototypeError,
-    DalContext, HistoryActor, ReadTenancy, SchemaPk, StandardModelError,
+    DalContext, HistoryActor, ReadTenancy, SchemaPk, StandardModelError, SocketId,
 };
 use si_data_nats::NatsError;
 
@@ -69,6 +69,8 @@ pub enum StatusValueKind {
     Attribute,
     CodeGen,
     Qualification,
+    InputSocket(SocketId),
+    OutputSocket(SocketId),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, Eq, Hash, PartialEq)]

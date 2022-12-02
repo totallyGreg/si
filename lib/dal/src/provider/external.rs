@@ -11,7 +11,7 @@ use crate::{
     impl_standard_model, pk, standard_model, standard_model_accessor, standard_model_accessor_ro,
     AttributePrototype, AttributePrototypeError, ComponentId, DiagramKind, FuncId,
     HistoryEventError, InternalProviderId, SchemaVariant, StandardModel, StandardModelError,
-    Timestamp, Visibility, WriteTenancy,
+    Timestamp, Visibility, WriteTenancy, standard_model_belongs_to, standard_model_has_many,
 };
 use crate::{
     AttributeContext, AttributeContextBuilderError, AttributeContextError, AttributePrototypeId,
@@ -188,6 +188,15 @@ impl ExternalProvider {
         attribute_prototype_id,
         OptionBigInt<AttributePrototypeId>,
         ExternalProviderResult
+    );
+
+    // This is a 1-1 relationship, so the Vec<Socket> should be 1
+    standard_model_has_many!(
+        lookup_fn: sockets,
+        table: "socket_many_to_many_schema_variants",
+        model_table: "sockets",
+        returns: Socket,
+        result: ExternalProviderResult,
     );
 
     /// Find all [`Self`] for a given [`SchemaVariant`](crate::SchemaVariant).
