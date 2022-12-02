@@ -7,6 +7,7 @@ import {
   GlobalUpdateStatus,
   ComponentUpdateStatus,
   AttributeValueId,
+  AttributeValueKind,
   AttributeValueStatus,
 } from "../status.store";
 
@@ -72,6 +73,10 @@ export type WsEventPayloadMap = {
 
   StatusUpdate: {
     status: AttributeValueStatus;
-    values: { componentId: ComponentId; valueId: AttributeValueId }[];
+    values: {
+      componentId: ComponentId;
+      valueId: AttributeValueId;
+      valueKind: AttributeValueKind;
+    }[];
   };
 };

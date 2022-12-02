@@ -8,9 +8,9 @@ use tokio::task::JoinSet;
 use crate::{
     job::consumer::{FaktoryJobInfo, JobConsumer, JobConsumerError, JobConsumerResult},
     job::producer::{JobMeta, JobProducer, JobProducerResult},
-    ws_event::{AttributeValueStatusUpdate, StatusState},
+    ws_event::{AttributeValueStatusUpdate, StatusState, StatusValueKind},
     AccessBuilder, AttributeValue, AttributeValueError, AttributeValueId, AttributeValueResult,
-    DalContext, StandardModel, Visibility, WsEvent,
+    DalContext, StandardModel, Visibility, WsEvent, FuncBinding, FuncBindingError, FuncBackendKind,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -131,11 +131,22 @@ impl JobConsumer for DependentValuesUpdate {
                 .ok_or_else(|| AttributeValueError::NotFound(*value_id, *ctx.visibility()))?;
             let component_id = attribute_value.context.component_id();
 
+
+            let func_binding = FuncBinding::get_by_id(ctx, &attribute_value.func_binding_id())
+                .await?
+                .ok_or_else(|| AttributeValueError::NotFound(*value_id, *ctx.visibility()))?; // TODO wrong kind of error
+
+            let value_kind = match func_binding.backend_kind() {
+                FuncBackendKind::JsCodeGeneration => StatusValueKind::CodeGen,
+                _ => StatusValueKind::Attribute,
+            };
+
             values_to_components.insert(
                 *value_id,
-                AttributeValueStatusUpdate::new(*value_id, component_id),
+                AttributeValueStatusUpdate::new(*value_id, component_id, value_kind),
             );
-            queued_values.push(AttributeValueStatusUpdate::new(*value_id, component_id));
+            // TODO: should be able to copy values_to_components without pushing into new array
+            queued_values.push(AttributeValueStatusUpdate::new(*value_id, component_id, value_kind));
         }
 
         WsEvent::status_update(ctx, StatusState::Queued, queued_values)

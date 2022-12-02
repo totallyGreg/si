@@ -1,10 +1,8 @@
 import { defineStore } from "pinia";
 import _ from "lodash";
-import async from "async";
 
 import { addStoreHooks } from "@/utils/pinia_hooks_plugin";
 
-import promiseDelay from "@/utils/promise_delay";
 import { ChangeSetId, useChangeSetsStore } from "./change_sets.store";
 import { useRealtimeStore } from "./realtime/realtime.store";
 
@@ -58,8 +56,15 @@ export type UpdateStatusTimestamps = {
   completedAt?: Date;
 };
 
+export type AttributeValueKind =
+  | "attribute"
+  | "code"
+  | "qualification"
+  | "confirmation";
+
 export type ComponentStatusDetails = {
   lastUpdatedAt?: Date;
+  valueKindByValueId: Record<AttributeValueId, AttributeValueKind>;
   timestampsByValueId: Record<AttributeValueId, UpdateStatusTimestamps>;
 };
 
@@ -77,7 +82,7 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
   return addStoreHooks(
     defineStore(`cs${changeSetId || "NONE"}/status`, {
       state: () => ({
-        valueStatusTimestampsByComponentId: {} as Record<
+        statusDetailsByComponentId: {} as Record<
           ComponentId,
           ComponentStatusDetails
         >,
@@ -122,7 +127,7 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
         },
         valueStatusesByComponentId(state) {
           return _.mapValues(
-            state.valueStatusTimestampsByComponentId,
+            state.statusDetailsByComponentId,
             (valueStatusesById) =>
               _.mapValues(
                 valueStatusesById.timestampsByValueId,
@@ -137,7 +142,8 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
         componentStatusById(): Record<ComponentId, ComponentUpdateStatus> {
           return _.mapValues(
             this.valueStatusesByComponentId,
-            (valueStatusesById, componentId) => {
+            (valueStatusesById, componentIdKey) => {
+              const componentId = parseInt(componentIdKey);
               const stepsCountTotal = _.values(valueStatusesById).length;
               const stepsCountCurrent = _.filter(
                 valueStatusesById,
@@ -145,11 +151,11 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
               ).length;
               const isUpdating = stepsCountCurrent < stepsCountTotal;
               const lastStepCompletedAt =
-                this.valueStatusTimestampsByComponentId[parseInt(componentId)]
-                  ?.lastUpdatedAt || new Date(); // TODO(wendy) - fix
+                this.statusDetailsByComponentId[componentId]?.lastUpdatedAt ||
+                new Date(); // TODO(wendy) - fix
 
               return {
-                componentId: parseInt(componentId),
+                componentId,
                 isUpdating,
                 stepsCountCurrent,
                 stepsCountTotal,
@@ -185,7 +191,7 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
         checkCompletedCleanup() {
           if (!this.globalStatus.isUpdating) {
             // if we're done updating, clear the timestamps
-            _.each(this.valueStatusTimestampsByComponentId, (component) => {
+            _.each(this.statusDetailsByComponentId, (component) => {
               component.timestampsByValueId = {};
             });
           }
@@ -204,28 +210,37 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
             eventType: "StatusUpdate",
             callback: (update) => {
               const now = new Date();
-              update.values.forEach(({ componentId, valueId }) => {
-                this.valueStatusTimestampsByComponentId[componentId] ||= {
+              update.values.forEach(({ componentId, valueId, valueKind }) => {
+                this.statusDetailsByComponentId[componentId] ||= {
                   timestampsByValueId: {},
+                  valueKindByValueId: {},
                 }; // if the given componentId doesn't have a corresponding object yet, make one
-                const component =
-                  this.valueStatusTimestampsByComponentId[componentId];
+                const componentDetails =
+                  this.statusDetailsByComponentId[componentId];
+
+                componentDetails.valueKindByValueId[valueId] =
+                  valueKind || "attribute";
 
                 // If we don't have a timestamp for an earlier step, we set it to the same one as the current step
                 // If the status is queued, clear other statuses
                 if (
                   update.status === "queued" ||
-                  !component.timestampsByValueId[valueId]
+                  !componentDetails.timestampsByValueId[valueId]
                 ) {
-                  component.timestampsByValueId[valueId] = { queuedAt: now };
+                  componentDetails.timestampsByValueId[valueId] = {
+                    queuedAt: now,
+                  };
                 }
                 if (update.status === "completed") {
-                  component.timestampsByValueId[valueId].completedAt = now;
-                  component.timestampsByValueId[valueId].runningAt ||= now;
-                  component.lastUpdatedAt = now;
+                  componentDetails.timestampsByValueId[valueId].completedAt =
+                    now;
+                  componentDetails.timestampsByValueId[valueId].runningAt ||=
+                    now;
+                  componentDetails.lastUpdatedAt = now;
                 } else if (update.status === "running") {
-                  component.timestampsByValueId[valueId].runningAt = now;
-                  delete component.timestampsByValueId[valueId].completedAt;
+                  componentDetails.timestampsByValueId[valueId].runningAt = now;
+                  delete componentDetails.timestampsByValueId[valueId]
+                    .completedAt;
                 }
               });
               if (update.status === "completed") {

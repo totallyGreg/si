@@ -63,18 +63,28 @@ pub struct StatusUpdate {
     values: Vec<AttributeValueStatusUpdate>,
 }
 
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Copy, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum StatusValueKind {
+    Attribute,
+    CodeGen,
+    Qualification,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, Eq, Hash, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AttributeValueStatusUpdate {
     value_id: AttributeValueId,
     component_id: ComponentId,
+    value_kind: StatusValueKind,
 }
 
 impl AttributeValueStatusUpdate {
-    pub fn new(value_id: AttributeValueId, component_id: ComponentId) -> Self {
+    pub fn new(value_id: AttributeValueId, component_id: ComponentId, value_kind: StatusValueKind) -> Self {
         Self {
             value_id,
             component_id,
+            value_kind,
         }
     }
 }
