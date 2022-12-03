@@ -11,7 +11,7 @@ use crate::{
     ws_event::{AttributeValueStatusUpdate, StatusState, StatusValueKind},
     AccessBuilder, AttributeValue, AttributeValueError, AttributeValueId, AttributeValueResult,
     DalContext, ExternalProvider, FuncBackendKind, FuncBinding, FuncBindingError, Prop,
-    SchemaVariant, StandardModel, Visibility, WsEvent,
+    SchemaVariant, StandardModel, Visibility, WsEvent, InternalProvider,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -131,7 +131,7 @@ impl JobConsumer for DependentValuesUpdate {
                 .ok_or_else(|| AttributeValueError::NotFound(*value_id, *ctx.visibility()))?;
             let component_id = attribute_value.context.component_id();
 
-            let mut value_kind = StatusValueKind::Attribute;
+            let mut value_kind;
 
             // TODO: only look up root prop once per component--take this out of the loop
 
@@ -155,15 +155,34 @@ impl JobConsumer for DependentValuesUpdate {
                     .pop()
                     .expect("TODO: no sockets in vec");
                 value_kind = StatusValueKind::OutputSocket(*socket.id());
-            }
+            
+            
             // does this value look like an input socket?
-            if attribute_value
+            } else if attribute_value
                 .context
                 .is_least_specific_field_kind_internal_provider()
                 .expect("TODO: attr context is invalid")
-            {}
+            {
+                let internal_provider = InternalProvider::get_by_id(ctx, &attribute_value.context.internal_provider_id())
+                    .await
+                    .expect("TODO: convert internal provider err")
+                    .expect("TODO: internal provider not found");
+                if internal_provider.prop_id().is_none() {
+                    let socket = internal_provider
+                        .sockets(ctx)
+                        .await
+                        .expect("TODO: failed to find sockets")
+                        .pop()
+                        .expect("TODO: no sockets in vec");
+                    value_kind = StatusValueKind::InputSocket(*socket.id());
+                } else {
+                    value_kind = StatusValueKind::Internal;
+                }
+            
             // does this value correspond to a code generation function?
-            if attribute_value.context.prop_id().is_some() {
+            } else if attribute_value.context.prop_id().is_some() {
+                value_kind = StatusValueKind::Attribute(attribute_value.context.prop_id());
+
                 let root_prop =
                     SchemaVariant::root_prop(ctx, attribute_value.context.schema_variant_id())
                         .await
@@ -188,6 +207,8 @@ impl JobConsumer for DependentValuesUpdate {
                         }
                     }
                 }
+            } else {
+                unreachable!("unexpectedly found a value that is not internal but has no prop id")
             }
 
             values_to_components.insert(

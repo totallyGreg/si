@@ -19,7 +19,7 @@ use crate::{
 };
 use crate::{
     AttributeContext, AttributeContextError, AttributeValue, DalContext, Func, FuncBinding, PropId,
-    SchemaId, SchemaVariantId,
+    SchemaId, SchemaVariantId, standard_model_has_many,
 };
 use crate::{Component, ComponentId};
 
@@ -322,6 +322,16 @@ impl InternalProvider {
         Option<String>,
         InternalProviderResult
     );
+
+    // This is a 1-1 relationship, so the Vec<Socket> should be 1
+    standard_model_has_many!(
+        lookup_fn: sockets,
+        table: "socket_belongs_to_internal_provider",
+        model_table: "sockets",
+        returns: Socket,
+        result: InternalProviderResult,
+    );
+
 
     /// If the [`PropId`](crate::Prop) field is not unset, then [`Self`] is an internal consumer.
     pub fn is_internal_consumer(&self) -> bool {

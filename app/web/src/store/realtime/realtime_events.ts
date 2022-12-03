@@ -76,7 +76,10 @@ export type WsEventPayloadMap = {
     values: {
       componentId: ComponentId;
       valueId: AttributeValueId;
-      valueKind: AttributeValueKind;
+      valueKind: {
+        kind: AttributeValueKind;
+        id?: number;
+      };
     }[];
   };
 };

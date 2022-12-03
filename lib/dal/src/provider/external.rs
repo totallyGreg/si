@@ -193,7 +193,7 @@ impl ExternalProvider {
     // This is a 1-1 relationship, so the Vec<Socket> should be 1
     standard_model_has_many!(
         lookup_fn: sockets,
-        table: "socket_many_to_many_schema_variants",
+        table: "socket_belongs_to_external_provider",
         model_table: "sockets",
         returns: Socket,
         result: ExternalProviderResult,

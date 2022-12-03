@@ -54,7 +54,7 @@ type Component = {
   resource: Resource;
 };
 
-type SocketId = number;
+export type SocketId = number;
 
 type SchemaId = number;
 

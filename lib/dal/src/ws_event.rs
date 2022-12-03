@@ -10,7 +10,7 @@ use crate::qualification::QualificationCheckId;
 use crate::workflow::{CommandOutput, CommandReturn};
 use crate::{
     AttributeValueId, BillingAccountId, ChangeSetPk, ComponentId, ConfirmationPrototypeError,
-    DalContext, HistoryActor, ReadTenancy, SchemaPk, StandardModelError, SocketId,
+    DalContext, HistoryActor, ReadTenancy, SchemaPk, StandardModelError, SocketId, PropId,
 };
 use si_data_nats::NatsError;
 
@@ -64,11 +64,12 @@ pub struct StatusUpdate {
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Copy, Hash)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag="kind", content="id")]
 pub enum StatusValueKind {
-    Attribute,
+    Attribute(PropId),
     CodeGen,
     Qualification,
+    Internal,
     InputSocket(SocketId),
     OutputSocket(SocketId),
 }

@@ -8,7 +8,7 @@
       height: socketSize,
       stroke: colors.stroke,
       strokeWidth: isHovered ? 2 : 1,
-      fill: colors.fill,
+      fill: fillColor,
     }"
     @mouseover="onMouseOver"
     @mouseout="onMouseOut"
@@ -41,6 +41,7 @@ import { KonvaEventObject } from "konva/lib/Node";
 import { computed, PropType } from "vue";
 import tinycolor from "tinycolor2";
 import { useTheme } from "@/ui-lib/theme_tools";
+import { useStatusStore } from "@/store/status.store";
 import {
   DiagramDrawEdgeState,
   DiagramEdgeData,
@@ -72,6 +73,22 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["hover:start", "hover:end"]);
+
+// TODO: do not use the stores here - we should keep the diagram as only generic "dumb" components
+const statusStore = useStatusStore();
+const socketStatus = computed(() =>
+  statusStore.getSocketStatus(
+    parseInt(props.socket.parent.def.id),
+    parseInt(props.socket.def.id),
+  ),
+);
+
+const fillColor = computed(() => {
+  if (socketStatus.value === "queued") return "#F00";
+  if (socketStatus.value === "running") return "#0F0";
+  if (socketStatus.value === "completed") return "#00F";
+  return colors.value.fill;
+});
 
 const isConnected = computed(() => props.connectedEdges.length >= 1);
 

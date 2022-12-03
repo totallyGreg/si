@@ -1,3 +1,4 @@
+import { time } from "console";
 import { defineStore } from "pinia";
 import _ from "lodash";
 
@@ -6,7 +7,7 @@ import { addStoreHooks } from "@/utils/pinia_hooks_plugin";
 import { ChangeSetId, useChangeSetsStore } from "./change_sets.store";
 import { useRealtimeStore } from "./realtime/realtime.store";
 
-import { ComponentId } from "./components.store";
+import { ComponentId, SocketId } from "./components.store";
 
 // NOTE - some uncertainty around transition from update finished state ("5/5 update complete") back to idle ("Model is up to date")
 export type GlobalUpdateStatus = {
@@ -57,14 +58,21 @@ export type UpdateStatusTimestamps = {
 };
 
 export type AttributeValueKind =
+  | "internal"
   | "attribute"
-  | "code"
+  | "codeGen"
   | "qualification"
-  | "confirmation";
+  | "confirmation"
+  | "inputSocket"
+  | "outputSocket";
 
 export type ComponentStatusDetails = {
   lastUpdatedAt?: Date;
-  valueKindByValueId: Record<AttributeValueId, AttributeValueKind>;
+  valueKindByValueId: Record<
+    AttributeValueId,
+    { kind: AttributeValueKind; id?: number }
+  >;
+  message: string;
   timestampsByValueId: Record<AttributeValueId, UpdateStatusTimestamps>;
 };
 
@@ -88,6 +96,23 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
         >,
       }),
       getters: {
+        getSocketStatus:
+          (state) => (componentId: ComponentId, socketId: SocketId) => {
+            const valueId = _.findKey(
+              state.statusDetailsByComponentId[componentId]?.valueKindByValueId,
+              (kindInfo) =>
+                kindInfo.kind.endsWith("Socket") && kindInfo.id === socketId,
+            );
+            if (!valueId) return "idle";
+            const timestamps =
+              state.statusDetailsByComponentId[componentId]
+                ?.timestampsByValueId[parseInt(valueId)];
+            if (!timestamps) return "idle";
+            if (timestamps.completedAt) return "completed";
+            if (timestamps.runningAt) return "running";
+            if (timestamps.queuedAt) return "queued";
+          },
+
         latestComponentUpdate(): ComponentUpdateStatus | undefined {
           const sortedUpdates = _.orderBy(
             _.values(this.componentStatusById),
@@ -159,7 +184,10 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
                 isUpdating,
                 stepsCountCurrent,
                 stepsCountTotal,
-                statusMessage: isUpdating ? "updating" : "updated", // TODO(wendy) - more details here?
+                // statusMessage: isUpdating ? "updating" : "updated", // TODO(wendy) - more details here?
+                statusMessage: isUpdating
+                  ? this.statusDetailsByComponentId[componentId]?.message
+                  : "Component updated",
                 lastStepCompletedAt,
               };
             },
@@ -212,14 +240,14 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
               const now = new Date();
               update.values.forEach(({ componentId, valueId, valueKind }) => {
                 this.statusDetailsByComponentId[componentId] ||= {
+                  message: "updating component",
                   timestampsByValueId: {},
                   valueKindByValueId: {},
                 }; // if the given componentId doesn't have a corresponding object yet, make one
                 const componentDetails =
                   this.statusDetailsByComponentId[componentId];
 
-                componentDetails.valueKindByValueId[valueId] =
-                  valueKind || "attribute";
+                componentDetails.valueKindByValueId[valueId] = valueKind;
 
                 // If we don't have a timestamp for an earlier step, we set it to the same one as the current step
                 // If the status is queued, clear other statuses
@@ -241,6 +269,17 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
                   componentDetails.timestampsByValueId[valueId].runningAt = now;
                   delete componentDetails.timestampsByValueId[valueId]
                     .completedAt;
+
+                  if (valueKind.kind !== "internal") {
+                    componentDetails.message = {
+                      codeGen: "Running code gen",
+                      attribute: "Updating attributes",
+                      qualification: "Running qualifications",
+                      inputSocket: "Updating input socket values",
+                      outputSocket: "Updating output socket values",
+                      confirmation: "Running confirmations",
+                    }[valueKind.kind];
+                  }
                 }
               });
               if (update.status === "completed") {
