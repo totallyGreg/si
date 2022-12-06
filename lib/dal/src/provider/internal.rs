@@ -18,8 +18,8 @@ use crate::{
     SchemaVariant, StandardModel, StandardModelError, Timestamp, Visibility, WriteTenancy,
 };
 use crate::{
-    AttributeContext, AttributeContextError, AttributeValue, DalContext, Func, FuncBinding, PropId,
-    SchemaId, SchemaVariantId, standard_model_has_many,
+    standard_model_has_many, AttributeContext, AttributeContextError, AttributeValue, DalContext,
+    Func, FuncBinding, PropId, SchemaId, SchemaVariantId,
 };
 use crate::{Component, ComponentId};
 
@@ -331,7 +331,6 @@ impl InternalProvider {
         returns: Socket,
         result: InternalProviderResult,
     );
-
 
     /// If the [`PropId`](crate::Prop) field is not unset, then [`Self`] is an internal consumer.
     pub fn is_internal_consumer(&self) -> bool {

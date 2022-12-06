@@ -61,6 +61,7 @@ pub mod socket;
 pub mod standard_accessors;
 pub mod standard_model;
 pub mod standard_pk;
+pub mod status;
 pub mod timestamp;
 pub mod user;
 pub mod validation;

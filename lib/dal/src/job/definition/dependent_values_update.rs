@@ -8,10 +8,9 @@ use tokio::task::JoinSet;
 use crate::{
     job::consumer::{FaktoryJobInfo, JobConsumer, JobConsumerError, JobConsumerResult},
     job::producer::{JobMeta, JobProducer, JobProducerResult},
-    ws_event::{AttributeValueStatusUpdate, StatusState, StatusValueKind},
+    status::StatusUpdater,
     AccessBuilder, AttributeValue, AttributeValueError, AttributeValueId, AttributeValueResult,
-    DalContext, ExternalProvider, FuncBackendKind, FuncBinding, FuncBindingError, Prop,
-    SchemaVariant, StandardModel, Visibility, WsEvent, InternalProvider,
+    DalContext, StandardModel, Visibility, WsEvent,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -96,14 +95,15 @@ impl JobConsumer for DependentValuesUpdate {
     async fn run(&self, ctx: &DalContext) -> JobConsumerResult<()> {
         let now = std::time::Instant::now();
 
+        let status_updater = StatusUpdater::new();
+        let status_update_id = status_updater.initialize(self.attribute_value_id).await?;
+
         let mut source_attribute_value = AttributeValue::get_by_id(ctx, &self.attribute_value_id)
             .await?
             .ok_or_else(|| {
                 AttributeValueError::NotFound(self.attribute_value_id, *ctx.visibility())
             })?;
         let mut dependency_graph = source_attribute_value.dependent_value_graph(ctx).await?;
-
-        info!("{}", dependency_graph_to_dot(ctx, &dependency_graph).await?);
 
         // NOTE(nick,jacob): uncomment this for debugging.
         // Save printed output to a file and execute the following: "dot <file> -Tsvg -o <newfile>.svg"
@@ -120,107 +120,12 @@ impl JobConsumer for DependentValuesUpdate {
             self.attribute_value_id, &dependency_graph
         );
 
-        info!("{}", dependency_graph_to_dot(ctx, &dependency_graph).await?);
-
-        let mut values_to_components: HashMap<AttributeValueId, AttributeValueStatusUpdate> =
-            HashMap::new();
-
-        for value_id in dependency_graph.keys() {
-            let attribute_value = AttributeValue::get_by_id(ctx, value_id)
-                .await?
-                .ok_or_else(|| AttributeValueError::NotFound(*value_id, *ctx.visibility()))?;
-            let component_id = attribute_value.context.component_id();
-
-            let mut value_kind;
-
-            // TODO: only look up root prop once per component--take this out of the loop
-
-            // does this value look like an output socket?
-            if attribute_value
-                .context
-                .is_least_specific_field_kind_external_provider()
-                .expect("TODO: attr context is invalid")
-            {
-                let external_provider = ExternalProvider::get_by_id(
-                    ctx,
-                    &attribute_value.context.external_provider_id(),
-                )
-                .await
-                .expect("TODO: convert external provider err")
-                .expect("TODO: external provider not found");
-                let socket = external_provider
-                    .sockets(ctx)
-                    .await
-                    .expect("TODO: failed to find sockets")
-                    .pop()
-                    .expect("TODO: no sockets in vec");
-                value_kind = StatusValueKind::OutputSocket(*socket.id());
-            
-            
-            // does this value look like an input socket?
-            } else if attribute_value
-                .context
-                .is_least_specific_field_kind_internal_provider()
-                .expect("TODO: attr context is invalid")
-            {
-                let internal_provider = InternalProvider::get_by_id(ctx, &attribute_value.context.internal_provider_id())
-                    .await
-                    .expect("TODO: convert internal provider err")
-                    .expect("TODO: internal provider not found");
-                if internal_provider.prop_id().is_none() {
-                    let socket = internal_provider
-                        .sockets(ctx)
-                        .await
-                        .expect("TODO: failed to find sockets")
-                        .pop()
-                        .expect("TODO: no sockets in vec");
-                    value_kind = StatusValueKind::InputSocket(*socket.id());
-                } else {
-                    value_kind = StatusValueKind::Internal;
-                }
-            
-            // does this value correspond to a code generation function?
-            } else if attribute_value.context.prop_id().is_some() {
-                value_kind = StatusValueKind::Attribute(attribute_value.context.prop_id());
-
-                let root_prop =
-                    SchemaVariant::root_prop(ctx, attribute_value.context.schema_variant_id())
-                        .await
-                        .expect("TODO: convert error type");
-                let prop = Prop::get_by_id(ctx, &dbg!(attribute_value.context).prop_id())
-                    .await
-                    .expect("TODO: error fetching prop")
-                    .expect("TODO: prop not found ");
-                if let Some(parent_prop) = prop
-                    .parent_prop(ctx)
-                    .await
-                    .expect("TODO prop error convert")
-                {
-                    if let Some(grandparent_prop) = parent_prop
-                        .parent_prop(ctx)
-                        .await
-                        .expect("TODO: prop error convert")
-                    {
-                        if grandparent_prop.id() == &root_prop.code_prop_id {
-                            dbg!(grandparent_prop);
-                            value_kind = StatusValueKind::CodeGen;
-                        }
-                    }
-                }
-            } else {
-                unreachable!("unexpectedly found a value that is not internal but has no prop id")
-            }
-
-            values_to_components.insert(
-                *value_id,
-                AttributeValueStatusUpdate::new(*value_id, component_id, value_kind),
-            );
-        }
-
-        let queued_values = values_to_components.values().copied().collect();
-
-        WsEvent::status_update(ctx, StatusState::Queued, queued_values)
-            .publish_immediately(ctx)
+        status_updater
+            .values_queued(
+                ctx,
+                status_update_id,
+                dependency_graph.keys().copied().collect(),
+            )
             .await?;
 
         let mut update_tasks = JoinSet::new();
@@ -251,22 +156,11 @@ impl JobConsumer for DependentValuesUpdate {
                 result
             });
 
-            let mut running_values = Vec::new();
-            for value_id in satisfied_dependencies.iter() {
-                running_values.push(
-                    *values_to_components
-                        .get(value_id)
-                        // All attribute values have been iterated their component ids should be in
-                        // the hashmap, otherwise this is a programmer bug!
-                        .expect("component id not found for value id"),
-                );
-            }
-
             if !satisfied_dependencies.is_empty() {
-                // Send a batched running status with all value/component ids that are being enqueued
-                // for processing
-                WsEvent::status_update(ctx, StatusState::Running, running_values)
-                    .publish_immediately(ctx)
+                // Send a batched running status with all value/component ids that are being
+                // enqueued for processing
+                status_updater
+                    .values_running(ctx, status_update_id, satisfied_dependencies.clone())
                     .await?;
             }
 
@@ -310,17 +204,9 @@ impl JobConsumer for DependentValuesUpdate {
                     }
 
                     // Send a completed status for this value and *remove* it from the hash
-                    WsEvent::status_update(
-                        ctx,
-                        StatusState::Completed,
-                        vec![values_to_components
-                            .remove(&finished_id)
-                            // All attribute values have been iterated their component ids should be in
-                            // the hashmap, otherwise this is a programmer bug!
-                            .expect("component id not found for value id")],
-                    )
-                    .publish_immediately(ctx)
-                    .await?;
+                    status_updater
+                        .values_completed(ctx, status_update_id, vec![finished_id])
+                        .await?;
                 }
                 // If we get `None` back from the `JoinSet` that means that there are no
                 // further tasks in the `JoinSet` for us to wait on. This should only happen
@@ -335,16 +221,7 @@ impl JobConsumer for DependentValuesUpdate {
             }
         }
 
-        // Send a completed status for all value/component ids that didn't need to be
-        // queued/completed because they didn't have their dependencies met.
-        dbg!(dependency_graph);
-        WsEvent::status_update(
-            ctx,
-            StatusState::Completed,
-            values_to_components.values().copied().collect(),
-        )
-        .publish_immediately(ctx)
-        .await?;
+        status_updater.update_complete(status_update_id).await?;
 
         WsEvent::change_set_written(ctx).publish(ctx).await?;
 

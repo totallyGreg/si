@@ -7,10 +7,11 @@ use crate::confirmation_status::ConfirmationStatusUpdate;
 use crate::fix::batch::FixBatchReturn;
 use crate::fix::FixReturn;
 use crate::qualification::QualificationCheckId;
+use crate::status::StatusUpdate;
 use crate::workflow::{CommandOutput, CommandReturn};
 use crate::{
     AttributeValueId, BillingAccountId, ChangeSetPk, ComponentId, ConfirmationPrototypeError,
-    DalContext, HistoryActor, ReadTenancy, SchemaPk, StandardModelError, SocketId, PropId,
+    DalContext, HistoryActor, PropId, ReadTenancy, SchemaPk, SocketId, StandardModelError,
 };
 use si_data_nats::NatsError;
 
@@ -48,23 +49,8 @@ pub enum WsPayload {
     StatusUpdate(StatusUpdate),
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum StatusState {
-    Queued,
-    Running,
-    Completed,
-}
-
-#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusUpdate {
-    status: StatusState,
-    values: Vec<AttributeValueStatusUpdate>,
-}
-
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Copy, Hash)]
-#[serde(rename_all = "camelCase", tag="kind", content="id")]
+#[serde(rename_all = "camelCase", tag = "kind", content = "id")]
 pub enum StatusValueKind {
     Attribute(PropId),
     CodeGen,
@@ -83,7 +69,11 @@ pub struct AttributeValueStatusUpdate {
 }
 
 impl AttributeValueStatusUpdate {
-    pub fn new(value_id: AttributeValueId, component_id: ComponentId, value_kind: StatusValueKind) -> Self {
+    pub fn new(
+        value_id: AttributeValueId,
+        component_id: ComponentId,
+        value_kind: StatusValueKind,
+    ) -> Self {
         Self {
             value_id,
             component_id,
@@ -123,17 +113,6 @@ impl WsEvent {
             history_actor,
             payload,
         }
-    }
-
-    pub fn status_update(
-        ctx: &DalContext,
-        status: StatusState,
-        values: Vec<AttributeValueStatusUpdate>,
-    ) -> Self {
-        WsEvent::new(
-            ctx,
-            WsPayload::StatusUpdate(StatusUpdate { status, values }),
-        )
     }
 
     pub fn billing_account_id_from_tenancy(tenancy: &ReadTenancy) -> Vec<BillingAccountId> {

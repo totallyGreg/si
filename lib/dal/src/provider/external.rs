@@ -9,9 +9,9 @@ use crate::schema::variant::SchemaVariantError;
 use crate::socket::{Socket, SocketArity, SocketEdgeKind, SocketError, SocketId, SocketKind};
 use crate::{
     impl_standard_model, pk, standard_model, standard_model_accessor, standard_model_accessor_ro,
-    AttributePrototype, AttributePrototypeError, ComponentId, DiagramKind, FuncId,
-    HistoryEventError, InternalProviderId, SchemaVariant, StandardModel, StandardModelError,
-    Timestamp, Visibility, WriteTenancy, standard_model_belongs_to, standard_model_has_many,
+    standard_model_has_many, AttributePrototype, AttributePrototypeError, ComponentId, DiagramKind,
+    FuncId, HistoryEventError, InternalProviderId, SchemaVariant, StandardModel,
+    StandardModelError, Timestamp, Visibility, WriteTenancy,
 };
 use crate::{
     AttributeContext, AttributeContextBuilderError, AttributeContextError, AttributePrototypeId,
