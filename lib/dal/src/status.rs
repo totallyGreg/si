@@ -1,7 +1,6 @@
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use serde::{Deserialize, Serialize};
-use si_data_nats::NatsClient;
 use telemetry::prelude::*;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -9,8 +8,8 @@ use uuid::Uuid;
 
 use crate::{
     AttributeValue, AttributeValueError, AttributeValueId, ComponentId, DalContext,
-    ExternalProvider, InternalProvider, Prop, PropId, SchemaVariant, SocketId, StandardModel,
-    WsEvent, WsEventError, WsPayload,
+    ExternalProvider, ExternalProviderError, InternalProvider, InternalProviderError, Prop,
+    PropError, PropId, SchemaVariant, SocketId, StandardModel, WsEvent, WsEventError, WsPayload,
 };
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
@@ -99,7 +98,7 @@ pub struct StatusUpdateId(Uuid);
 
 impl fmt::Display for StatusUpdateId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0.to_string())
+        write!(f, "{}", self.0)
     }
 }
 
@@ -107,6 +106,12 @@ impl fmt::Display for StatusUpdateId {
 pub struct StatusUpdater {
     status_updates:
         Arc<Mutex<HashMap<StatusUpdateId, HashMap<AttributeValueId, AttributeValueMetadata>>>>,
+}
+
+impl Default for StatusUpdater {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StatusUpdater {
@@ -154,49 +159,55 @@ impl StatusUpdater {
 
             let mut value_kind;
 
-            // TODO: only look up root prop once per component--take this out of the loop
-
             // does this value look like an output socket?
             if attribute_value
                 .context
                 .is_least_specific_field_kind_external_provider()
-                .expect("TODO: attr context is invalid")
+                .map_err(StatusUpdaterError::metadata)?
             {
                 let external_provider = ExternalProvider::get_by_id(
                     ctx,
                     &attribute_value.context.external_provider_id(),
                 )
                 .await
-                .expect("TODO: convert external provider err")
-                .expect("TODO: external provider not found");
+                .map_err(StatusUpdaterError::metadata)?
+                .ok_or_else(|| {
+                    StatusUpdaterError::metadata(ExternalProviderError::NotFound(
+                        attribute_value.context.external_provider_id(),
+                    ))
+                })?;
                 let socket = external_provider
                     .sockets(ctx)
                     .await
-                    .expect("TODO: failed to find sockets")
+                    .map_err(StatusUpdaterError::metadata)?
                     .pop()
-                    .expect("TODO: no sockets in vec");
+                    .expect("no sockets in vec");
                 value_kind = AttributeValueKind::OutputSocket(*socket.id());
 
             // does this value look like an input socket?
             } else if attribute_value
                 .context
                 .is_least_specific_field_kind_internal_provider()
-                .expect("TODO: attr context is invalid")
+                .map_err(StatusUpdaterError::metadata)?
             {
                 let internal_provider = InternalProvider::get_by_id(
                     ctx,
                     &attribute_value.context.internal_provider_id(),
                 )
                 .await
-                .expect("TODO: convert internal provider err")
-                .expect("TODO: internal provider not found");
+                .map_err(StatusUpdaterError::metadata)?
+                .ok_or_else(|| {
+                    StatusUpdaterError::metadata(InternalProviderError::NotFound(
+                        attribute_value.context.internal_provider_id(),
+                    ))
+                })?;
                 if internal_provider.prop_id().is_none() {
                     let socket = internal_provider
                         .sockets(ctx)
                         .await
-                        .expect("TODO: failed to find sockets")
+                        .map_err(StatusUpdaterError::metadata)?
                         .pop()
-                        .expect("TODO: no sockets in vec");
+                        .expect("no sockets in vec");
                     value_kind = AttributeValueKind::InputSocket(*socket.id());
                 } else {
                     value_kind = AttributeValueKind::Internal;
@@ -209,23 +220,27 @@ impl StatusUpdater {
                 let root_prop =
                     SchemaVariant::root_prop(ctx, attribute_value.context.schema_variant_id())
                         .await
-                        .expect("TODO: convert error type");
-                let prop = Prop::get_by_id(ctx, &dbg!(attribute_value.context).prop_id())
+                        .map_err(StatusUpdaterError::metadata)?;
+                let prop = Prop::get_by_id(ctx, &attribute_value.context.prop_id())
                     .await
-                    .expect("TODO: error fetching prop")
-                    .expect("TODO: prop not found ");
+                    .map_err(StatusUpdaterError::metadata)?
+                    .ok_or_else(|| {
+                        StatusUpdaterError::metadata(PropError::NotFound(
+                            attribute_value.context.prop_id(),
+                            *ctx.visibility(),
+                        ))
+                    })?;
                 if let Some(parent_prop) = prop
                     .parent_prop(ctx)
                     .await
-                    .expect("TODO prop error convert")
+                    .map_err(StatusUpdaterError::metadata)?
                 {
                     if let Some(grandparent_prop) = parent_prop
                         .parent_prop(ctx)
                         .await
-                        .expect("TODO: prop error convert")
+                        .map_err(StatusUpdaterError::metadata)?
                     {
                         if grandparent_prop.id() == &root_prop.code_prop_id {
-                            dbg!(grandparent_prop);
                             value_kind = AttributeValueKind::CodeGen;
                         }
                     }
