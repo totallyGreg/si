@@ -90,6 +90,7 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
   return addStoreHooks(
     defineStore(`cs${changeSetId || "NONE"}/status`, {
       state: () => ({
+        calculatingUpdateSize: false,
         statusDetailsByComponentId: {} as Record<
           ComponentId,
           ComponentStatusDetails
@@ -139,6 +140,19 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
           ).length;
           const componentsCountTotal = _.size(this.componentStatusById);
 
+          // handle special case for when update just began but we have not gotten details from backend yet
+          if (this.calculatingUpdateSize && !isUpdating) {
+            return {
+              isUpdating: true,
+              stepsCountCurrent: 1,
+              stepsCountTotal: 100,
+              componentsCountCurrent: 0,
+              componentsCountTotal: Infinity,
+              updateStartedAt: new Date(),
+              lastStepCompletedAt: new Date(),
+            };
+          }
+
           return {
             isUpdating,
             stepsCountCurrent,
@@ -150,6 +164,20 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
             lastStepCompletedAt: new Date(),
           };
         },
+        globalStatusMessage(): string {
+          if (this.globalStatus.isUpdating || this.calculatingUpdateSize) {
+            return "Updating & testing the model";
+          }
+          return "Model is up to date";
+        },
+        globalStatusDetailMessage(): string | undefined {
+          if (this.calculatingUpdateSize) return "Calculating scope of update";
+          if (!this.globalStatus.isUpdating) return;
+          const latestUpdate = this.latestComponentUpdate;
+          if (!latestUpdate) return;
+          return `${latestUpdate.statusMessage} - component ${latestUpdate.componentId}`;
+        },
+
         valueStatusesByComponentId(state) {
           return _.mapValues(
             state.statusDetailsByComponentId,
@@ -214,6 +242,13 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
           //     this.componentStatusById = _.keyBy(response.components, "id");
           //   },
           // });
+        },
+
+        markUpdateStarted() {
+          this.calculatingUpdateSize = true;
+        },
+        cancelUpdateStarted() {
+          this.calculatingUpdateSize = false;
         },
 
         checkCompletedCleanup() {
@@ -282,6 +317,10 @@ export const useStatusStore = (forceChangeSetId?: ChangeSetId) => {
                   }
                 }
               });
+              // if we are receiving the queued event, we'll clear our locally stored loading state we set when the attribute was updated
+              if (update.status === "queued" && this.calculatingUpdateSize) {
+                this.calculatingUpdateSize = false;
+              }
               if (update.status === "completed") {
                 if (cleanupTimeout) clearTimeout(cleanupTimeout);
                 cleanupTimeout = setTimeout(this.checkCompletedCleanup, 2000);
