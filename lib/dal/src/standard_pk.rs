@@ -1,6 +1,10 @@
 #[macro_export]
 macro_rules! pk {
-    ($name:ident) => {
+    (
+        $(#[$($attrss:tt)*])*
+        $name:ident
+    ) => {
+        $(#[$($attrss)*])*
         #[derive(
             Debug,
             Eq,
@@ -19,12 +23,15 @@ macro_rules! pk {
         pub struct $name(i64);
 
         impl $name {
+            /// An unset id value.
             pub const NONE: Self = Self(-1);
 
+            /// Returns `true` if id is set (i.e. not [`NONE`](Self::NONE)).
             pub fn is_some(&self) -> bool {
                 !self.is_none()
             }
 
+            /// Returns `true` if is unset (i.e. value is equal to [`NONE`](Self::NONE)).
             pub fn is_none(&self) -> bool {
                 self == &Self::NONE
             }

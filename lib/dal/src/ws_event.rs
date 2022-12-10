@@ -7,7 +7,7 @@ use crate::confirmation_status::ConfirmationStatusUpdate;
 use crate::fix::batch::FixBatchReturn;
 use crate::fix::FixReturn;
 use crate::qualification::QualificationCheckId;
-use crate::status::StatusUpdate;
+use crate::status::StatusMessage;
 use crate::workflow::{CommandOutput, CommandReturn};
 use crate::{
     AttributeValueId, BillingAccountId, ChangeSetPk, ComponentId, ConfirmationPrototypeError,
@@ -46,7 +46,7 @@ pub enum WsPayload {
     FixBatchReturn(FixBatchReturn),
     FixReturn(FixReturn),
     ConfirmationStatusUpdate(ConfirmationStatusUpdate),
-    StatusUpdate(StatusUpdate),
+    StatusUpdate(StatusMessage),
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Copy, Hash)]

@@ -8,9 +8,8 @@ use tokio::task::JoinSet;
 use crate::{
     job::consumer::{FaktoryJobInfo, JobConsumer, JobConsumerError, JobConsumerResult},
     job::producer::{JobMeta, JobProducer, JobProducerResult},
-    status::StatusUpdater,
     AccessBuilder, AttributeValue, AttributeValueError, AttributeValueId, AttributeValueResult,
-    DalContext, StandardModel, Visibility, WsEvent,
+    DalContext, StandardModel, StatusUpdater, Visibility, WsEvent,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -95,8 +94,7 @@ impl JobConsumer for DependentValuesUpdate {
     async fn run(&self, ctx: &DalContext) -> JobConsumerResult<()> {
         let now = std::time::Instant::now();
 
-        let status_updater = StatusUpdater::new();
-        let status_update_id = status_updater.initialize(self.attribute_value_id).await?;
+        let mut status_updater = StatusUpdater::initialize(ctx, self.attribute_value_id).await?;
 
         let mut source_attribute_value = AttributeValue::get_by_id(ctx, &self.attribute_value_id)
             .await?
@@ -121,11 +119,7 @@ impl JobConsumer for DependentValuesUpdate {
         );
 
         status_updater
-            .values_queued(
-                ctx,
-                status_update_id,
-                dependency_graph.keys().copied().collect(),
-            )
+            .values_queued(ctx, dependency_graph.keys().copied().collect())
             .await?;
 
         let mut update_tasks = JoinSet::new();
@@ -160,7 +154,7 @@ impl JobConsumer for DependentValuesUpdate {
                 // Send a batched running status with all value/component ids that are being
                 // enqueued for processing
                 status_updater
-                    .values_running(ctx, status_update_id, satisfied_dependencies.clone())
+                    .values_running(ctx, satisfied_dependencies.clone())
                     .await?;
             }
 
@@ -205,7 +199,7 @@ impl JobConsumer for DependentValuesUpdate {
 
                     // Send a completed status for this value and *remove* it from the hash
                     status_updater
-                        .values_completed(ctx, status_update_id, vec![finished_id])
+                        .values_completed(ctx, vec![finished_id])
                         .await?;
                 }
                 // If we get `None` back from the `JoinSet` that means that there are no
@@ -221,7 +215,7 @@ impl JobConsumer for DependentValuesUpdate {
             }
         }
 
-        status_updater.update_complete(status_update_id).await?;
+        status_updater.update_complete()?;
 
         WsEvent::change_set_written(ctx).publish(ctx).await?;
 
