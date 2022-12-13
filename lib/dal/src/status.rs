@@ -384,18 +384,23 @@ impl StatusUpdate {
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum StatusMessageState {
+    /// A status update has started
+    StatusStarted,
     /// A message which has newly queued entries
     Queued,
     /// A message which has newly running entries
     Running,
     /// A message which has newly completed entries
     Completed,
+    /// A status update has finished
+    StatusFinished,
 }
 
 /// A status message which encapsulates a new status for some subset of entries.
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusMessage {
+    pk: StatusUpdatePk,
     status: StatusMessageState,
     values: Vec<AttributeValueMetadata>,
 }
@@ -481,9 +486,12 @@ impl StatusUpdater {
         ctx: &DalContext,
         attribute_value_id: AttributeValueId,
     ) -> Result<Self, StatusUpdaterError> {
-        // TODO(fnichol): send a message?
-
         let model = StatusUpdate::new(ctx, attribute_value_id).await?;
+
+        WsEvent::status_update(ctx, model.pk, StatusMessageState::StatusStarted, vec![])
+            .publish_immediately(ctx)
+            .await?;
+
         Ok(Self { model })
     }
 
@@ -634,10 +642,10 @@ impl StatusUpdater {
 
         WsEvent::status_update(
             ctx,
+            self.model.pk,
             StatusMessageState::Queued,
             queued_values.into_iter().collect(),
         )
-        .await?
         .publish_immediately(ctx)
         .await?;
 
@@ -660,9 +668,14 @@ impl StatusUpdater {
             .set_running_dependent_value_ids(ctx, value_ids)
             .await?;
 
-        WsEvent::status_update(ctx, StatusMessageState::Running, running_values)
-            .publish_immediately(ctx)
-            .await?;
+        WsEvent::status_update(
+            ctx,
+            self.model.pk,
+            StatusMessageState::Running,
+            running_values,
+        )
+        .publish_immediately(ctx)
+        .await?;
 
         Ok(())
     }
@@ -683,9 +696,14 @@ impl StatusUpdater {
             .set_completed_dependent_value_ids(ctx, value_ids)
             .await?;
 
-        WsEvent::status_update(ctx, StatusMessageState::Completed, completed_values)
-            .publish_immediately(ctx)
-            .await?;
+        WsEvent::status_update(
+            ctx,
+            self.model.pk,
+            StatusMessageState::Completed,
+            completed_values,
+        )
+        .publish_immediately(ctx)
+        .await?;
 
         Ok(())
     }
@@ -733,6 +751,15 @@ impl StatusUpdater {
             ));
         }
 
+        WsEvent::status_update(
+            ctx,
+            self.model.pk,
+            StatusMessageState::StatusFinished,
+            vec![],
+        )
+        .publish_immediately(ctx)
+        .await?;
+
         Ok(())
     }
 }
@@ -741,12 +768,13 @@ impl WsEvent {
     /// Creates a new `WsEvent` for a [`StatusUpdate`].
     pub fn status_update(
         ctx: &DalContext,
+        pk: StatusUpdatePk,
         status: StatusMessageState,
         values: Vec<AttributeValueMetadata>,
-    ) -> StatusUpdateResult<Self> {
-        Ok(WsEvent::new(
+    ) -> Self {
+        WsEvent::new(
             ctx,
-            WsPayload::StatusUpdate(StatusMessage { status, values }),
-        ))
+            WsPayload::StatusUpdate(StatusMessage { pk, status, values }),
+        )
     }
 }
