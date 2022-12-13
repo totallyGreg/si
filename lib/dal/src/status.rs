@@ -12,8 +12,8 @@ use telemetry::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    pk, standard_model, AttributeValue, AttributeValueError, AttributeValueId, ChangeSetPk,
-    ComponentId, DalContext, ExternalProvider, ExternalProviderError, HistoryActor,
+    pk, standard_model::objects_from_rows, AttributeValue, AttributeValueError, AttributeValueId,
+    ChangeSetPk, ComponentId, DalContext, ExternalProvider, ExternalProviderError, HistoryActor,
     InternalProvider, InternalProviderError, Prop, PropError, PropId, SchemaVariant, SocketId,
     StandardModel, StandardModelError, Timestamp, User, UserId, WriteTenancy, WsEvent,
     WsEventError, WsPayload,
@@ -21,6 +21,7 @@ use crate::{
 
 const MODEL_TABLE: &str = "status_updates";
 
+const LIST_ACTIVE: &str = include_str!("./queries/status_update_list_active.sql");
 const UPDATE_DATA: &str = include_str!("./queries/status_update_update_data.sql");
 const MARK_FINISHED: &str = include_str!("./queries/status_update_mark_finished.sql");
 
@@ -42,6 +43,7 @@ pub enum StatusUpdateError {
     /// When a standard model error is returned
     #[error("standard model error: {0}")]
     StandardModelError(#[from] StandardModelError),
+    /// When a user is not found by id
     #[error("user not found with id: {0}")]
     UserNotFound(UserId),
 }
@@ -178,16 +180,23 @@ impl postgres_types::ToSql for StatusUpdateData {
 }
 
 /// A `StatusUpdate` tracks the progress of a complex event which has more than one phase or step.
+///
+/// # Implementation Notes
+///
+/// A `StatusUpdate` lives outside of a normal [`DalContext`] database transaction. It behaves more
+/// like a `HistoryEvent` or a general audit event.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StatusUpdate {
-    pk: StatusUpdatePk,
+    /// The primary key
+    pub pk: StatusUpdatePk,
     #[serde(flatten)]
     tenancy: WriteTenancy,
     #[serde(flatten)]
     timestamp: Timestamp,
     finished_at: Option<DateTime<Utc>>,
     change_set_pk: ChangeSetPk,
-    data: StatusUpdateData,
+    /// The update data
+    pub data: StatusUpdateData,
 }
 
 impl StatusUpdate {
@@ -202,6 +211,8 @@ impl StatusUpdate {
     ) -> StatusUpdateResult<Self> {
         let actor = StatusUpdateActor::from_history_actor(ctx, ctx.history_actor()).await?;
 
+        // This query explicitly uses its own connection to bypass/avoid a ctx's database
+        // transaction--status updates live outside of transactions!
         let row = ctx
             .pg_pool()
             .get()
@@ -227,9 +238,40 @@ impl StatusUpdate {
     ///
     /// Returns [`Err`] if there is a connection issue or if the object was not found.
     pub async fn get_by_pk(ctx: &DalContext, pk: StatusUpdatePk) -> StatusUpdateResult<Self> {
-        standard_model::get_by_pk(ctx, MODEL_TABLE, &pk)
-            .await
-            .map_err(Into::into)
+        // This query explicitly uses its own connection to bypass/avoid a ctx's database
+        // transaction--status updates live outside of transactions!
+        let row = ctx
+            .pg_pool()
+            .get()
+            .await?
+            .query_one(
+                "SELECT object FROM get_by_pk_v1($1, $2)",
+                &[&MODEL_TABLE, &pk],
+            )
+            .await?;
+        let json: serde_json::Value = row.try_get("object")?;
+        let object = serde_json::from_value(json)?;
+        Ok(object)
+    }
+
+    /// Returns `StatusUpdate`s for a changeset that are un-finished (i.e. "active").
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] if there is a connection issue.
+    pub async fn list_active(ctx: &DalContext) -> StatusUpdateResult<Vec<Self>> {
+        // This query explicitly uses its own connection to bypass/avoid a ctx's database
+        // transaction--status updates live outside of transactions!
+        let rows = ctx
+            .pg_pool()
+            .get()
+            .await?
+            .query(
+                LIST_ACTIVE,
+                &[&ctx.visibility().change_set_pk, ctx.read_tenancy()],
+            )
+            .await?;
+        objects_from_rows(rows).map_err(Into::into)
     }
 
     /// Returns the initial [`AttributeValueId`].
@@ -350,6 +392,8 @@ impl StatusUpdate {
     }
 
     async fn persist_data_to_db(&mut self, ctx: &DalContext) -> StatusUpdateResult<()> {
+        // This query explicitly uses its own connection to bypass/avoid a ctx's database
+        // transaction--status updates live outside of transactions!
         let row = ctx
             .pg_pool()
             .get()
