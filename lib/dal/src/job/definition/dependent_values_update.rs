@@ -215,7 +215,7 @@ impl JobConsumer for DependentValuesUpdate {
             }
         }
 
-        status_updater.update_complete()?;
+        status_updater.finish(ctx).await?;
 
         WsEvent::change_set_written(ctx).publish(ctx).await?;
 

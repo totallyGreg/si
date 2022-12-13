@@ -5,21 +5,24 @@
 
 use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use si_data_pg::{PgError, PgPoolError};
 use telemetry::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    pk, standard_model, AttributeValue, AttributeValueError, AttributeValueId, ComponentId,
-    DalContext, ExternalProvider, ExternalProviderError, InternalProvider, InternalProviderError,
-    Prop, PropError, PropId, SchemaVariant, SocketId, StandardModel, StandardModelError, Timestamp,
-    WriteTenancy, WsEvent, WsEventError, WsPayload,
+    pk, standard_model, AttributeValue, AttributeValueError, AttributeValueId, ChangeSetPk,
+    ComponentId, DalContext, ExternalProvider, ExternalProviderError, HistoryActor,
+    InternalProvider, InternalProviderError, Prop, PropError, PropId, SchemaVariant, SocketId,
+    StandardModel, StandardModelError, Timestamp, User, UserId, WriteTenancy, WsEvent,
+    WsEventError, WsPayload,
 };
 
 const MODEL_TABLE: &str = "status_updates";
 
 const UPDATE_DATA: &str = include_str!("./queries/status_update_update_data.sql");
+const MARK_FINISHED: &str = include_str!("./queries/status_update_mark_finished.sql");
 
 /// A possible error that can be returned when working with a [`StatusUpdate`].
 #[derive(Error, Debug)]
@@ -39,6 +42,8 @@ pub enum StatusUpdateError {
     /// When a standard model error is returned
     #[error("standard model error: {0}")]
     StandardModelError(#[from] StandardModelError),
+    #[error("user not found with id: {0}")]
+    UserNotFound(UserId),
 }
 
 impl From<PgPoolError> for StatusUpdateError {
@@ -55,10 +60,86 @@ pk!(
     StatusUpdatePk
 );
 
+/// The actor entitiy that initiates an activitiy--this could represent be a person, service, etc.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StatusUpdateActor {
+    /// Represents a human by their [`UserId`]
+    User {
+        /// A user's ID
+        id: UserId,
+        /// A display label
+        label: String,
+    },
+    /// Represents a system-generated activity
+    System {
+        /// A display label
+        #[serde(default = "StatusUpdateActor::system_label")]
+        label: String,
+    },
+}
+
+impl StatusUpdateActor {
+    fn system_label() -> String {
+        "system".to_string()
+    }
+
+    async fn from_history_actor(
+        ctx: &DalContext,
+        history_actor: &HistoryActor,
+    ) -> StatusUpdateResult<Self> {
+        match history_actor {
+            HistoryActor::User(user_id) => {
+                let user = User::get_by_id(ctx, user_id)
+                    .await?
+                    .ok_or(StatusUpdateError::UserNotFound(*user_id))?;
+                Ok(Self::User {
+                    id: *user.id(),
+                    label: user.name().to_string(),
+                })
+            }
+            HistoryActor::SystemInit => Ok(Self::System {
+                label: Self::system_label(),
+            }),
+        }
+    }
+}
+
+impl postgres_types::ToSql for StatusUpdateActor {
+    fn to_sql(
+        &self,
+        ty: &postgres_types::Type,
+        out: &mut postgres_types::private::BytesMut,
+    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        let json = serde_json::to_value(self)?;
+        postgres_types::ToSql::to_sql(&json, ty, out)
+    }
+
+    fn accepts(ty: &postgres_types::Type) -> bool
+    where
+        Self: Sized,
+    {
+        ty == &postgres_types::Type::JSONB
+    }
+
+    fn to_sql_checked(
+        &self,
+        ty: &postgres_types::Type,
+        out: &mut postgres_types::private::BytesMut,
+    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        let json = serde_json::to_value(self)?;
+        postgres_types::ToSql::to_sql(&json, ty, out)
+    }
+}
+
 /// The internal state data of a [`StatusUpdate`].
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StatusUpdateData {
-    // TODO: add change set id
+    actor: StatusUpdateActor,
+    /// The initial/causal/initiaing value id that triggered the depdendent value job
     attribute_value_id: AttributeValueId,
     dependent_values_metadata: HashMap<AttributeValueId, AttributeValueMetadata>,
     queued_dependent_value_ids: HashSet<AttributeValueId>,
@@ -104,6 +185,8 @@ pub struct StatusUpdate {
     tenancy: WriteTenancy,
     #[serde(flatten)]
     timestamp: Timestamp,
+    finished_at: Option<DateTime<Utc>>,
+    change_set_pk: ChangeSetPk,
     data: StatusUpdateData,
 }
 
@@ -117,13 +200,20 @@ impl StatusUpdate {
         ctx: &DalContext,
         attribute_value_id: AttributeValueId,
     ) -> StatusUpdateResult<Self> {
+        let actor = StatusUpdateActor::from_history_actor(ctx, ctx.history_actor()).await?;
+
         let row = ctx
             .pg_pool()
             .get()
             .await?
             .query_one(
-                "SELECT object FROM status_update_create_v1($1, $2)",
-                &[&attribute_value_id, ctx.write_tenancy()],
+                "SELECT object FROM status_update_create_v1($1, $2, $3, $4)",
+                &[
+                    &attribute_value_id,
+                    &ctx.visibility().change_set_pk,
+                    &actor,
+                    ctx.write_tenancy(),
+                ],
             )
             .await?;
         let json: serde_json::Value = row.try_get("object")?;
@@ -179,9 +269,9 @@ impl StatusUpdate {
     pub async fn set_queued_dependent_value_ids(
         &mut self,
         ctx: &DalContext,
-        queued_dependent_value_ids: HashSet<AttributeValueId>,
+        value_ids: HashSet<AttributeValueId>,
     ) -> StatusUpdateResult<Vec<AttributeValueMetadata>> {
-        self.data.queued_dependent_value_ids = queued_dependent_value_ids;
+        self.data.queued_dependent_value_ids.extend(value_ids);
         self.persist_data_to_db(ctx).await?;
 
         self.metadata_from_value_ids(&self.data.queued_dependent_value_ids)
@@ -200,12 +290,12 @@ impl StatusUpdate {
     pub async fn set_running_dependent_value_ids(
         &mut self,
         ctx: &DalContext,
-        running_dependent_value_ids: Vec<AttributeValueId>,
+        value_ids: Vec<AttributeValueId>,
     ) -> StatusUpdateResult<Vec<AttributeValueMetadata>> {
-        for value_id in running_dependent_value_ids.iter() {
+        for value_id in value_ids.iter() {
             self.data.queued_dependent_value_ids.remove(value_id);
         }
-        self.data.running_dependent_value_ids = running_dependent_value_ids.into_iter().collect();
+        self.data.running_dependent_value_ids.extend(value_ids);
         self.persist_data_to_db(ctx).await?;
 
         self.metadata_from_value_ids(&self.data.running_dependent_value_ids)
@@ -224,16 +314,39 @@ impl StatusUpdate {
     pub async fn set_completed_dependent_value_ids(
         &mut self,
         ctx: &DalContext,
-        completed_dependent_value_ids: Vec<AttributeValueId>,
+        value_ids: Vec<AttributeValueId>,
     ) -> StatusUpdateResult<Vec<AttributeValueMetadata>> {
-        for value_id in completed_dependent_value_ids.iter() {
+        for value_id in value_ids.iter() {
             self.data.running_dependent_value_ids.remove(value_id);
         }
-        self.data.completed_dependent_value_ids =
-            completed_dependent_value_ids.into_iter().collect();
+        self.data.completed_dependent_value_ids.extend(value_ids);
         self.persist_data_to_db(ctx).await?;
 
         self.metadata_from_value_ids(&self.data.completed_dependent_value_ids)
+    }
+
+    /// Marks the status update as finished and persists the update.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] if there is a connection issue or if the update fails.
+    pub async fn finish(&mut self, ctx: &DalContext) -> StatusUpdateResult<()> {
+        let row = ctx
+            .pg_pool()
+            .get()
+            .await?
+            .query_one(MARK_FINISHED, &[&self.pk])
+            .await?;
+        let updated_at = row.try_get("updated_at").map_err(|_| {
+            StandardModelError::ModelMissing(MODEL_TABLE.to_string(), self.pk.to_string())
+        })?;
+        let finished_at = row.try_get("finished_at").map_err(|_| {
+            StandardModelError::ModelMissing(MODEL_TABLE.to_string(), self.pk.to_string())
+        })?;
+        self.timestamp.updated_at = updated_at;
+        self.finished_at = Some(finished_at);
+
+        Ok(())
     }
 
     async fn persist_data_to_db(&mut self, ctx: &DalContext) -> StatusUpdateResult<()> {
@@ -524,6 +637,7 @@ impl StatusUpdater {
             StatusMessageState::Queued,
             queued_values.into_iter().collect(),
         )
+        .await?
         .publish_immediately(ctx)
         .await?;
 
@@ -564,24 +678,26 @@ impl StatusUpdater {
         ctx: &DalContext,
         value_ids: Vec<AttributeValueId>,
     ) -> Result<(), StatusUpdaterError> {
-        let finished_values = self
+        let completed_values = self
             .model
             .set_completed_dependent_value_ids(ctx, value_ids)
             .await?;
 
-        WsEvent::status_update(ctx, StatusMessageState::Completed, finished_values)
+        WsEvent::status_update(ctx, StatusMessageState::Completed, completed_values)
             .publish_immediately(ctx)
             .await?;
 
         Ok(())
     }
 
-    /// Finalizes the update, ensuring that there are no unprocessed values.
+    /// Marks the [`StatusUpdate`] as finished, and ensures that there are no unprocessed values.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] if there are unprocessed values.
-    pub fn update_complete(self) -> Result<(), StatusUpdaterError> {
+    pub async fn finish(mut self, ctx: &DalContext) -> Result<(), StatusUpdaterError> {
+        self.model.finish(ctx).await?;
+
         let all_value_ids = self
             .model
             .dependent_values_metadata()
@@ -627,10 +743,10 @@ impl WsEvent {
         ctx: &DalContext,
         status: StatusMessageState,
         values: Vec<AttributeValueMetadata>,
-    ) -> Self {
-        WsEvent::new(
+    ) -> StatusUpdateResult<Self> {
+        Ok(WsEvent::new(
             ctx,
             WsPayload::StatusUpdate(StatusMessage { status, values }),
-        )
+        ))
     }
 }

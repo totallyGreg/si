@@ -87,6 +87,7 @@ pub struct WsEvent {
     version: i64,
     billing_account_ids: Vec<BillingAccountId>,
     history_actor: HistoryActor,
+    change_set_pk: ChangeSetPk,
     payload: WsPayload,
 }
 
@@ -94,23 +95,13 @@ impl WsEvent {
     pub fn new(ctx: &DalContext, payload: WsPayload) -> Self {
         let billing_account_ids = Self::billing_account_id_from_tenancy(ctx.read_tenancy());
         let history_actor = ctx.history_actor().clone();
-        WsEvent {
-            version: 1,
-            billing_account_ids,
-            history_actor,
-            payload,
-        }
-    }
+        let change_set_pk = ctx.visibility().change_set_pk;
 
-    pub fn new_raw(
-        billing_account_ids: Vec<BillingAccountId>,
-        history_actor: HistoryActor,
-        payload: WsPayload,
-    ) -> Self {
         WsEvent {
             version: 1,
             billing_account_ids,
             history_actor,
+            change_set_pk,
             payload,
         }
     }
