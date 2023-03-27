@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{io, path::Path, sync::Arc};
 
 use dal::{
@@ -7,18 +8,22 @@ use dal::{
         producer::JobProducer,
     },
     DalContext, DalContextBuilder, DependentValuesUpdate, InitializationError, JobFailure,
-    JobFailureError, JobQueueProcessor, NatsProcessor, ServicesContext, TransactionsError,
+    JobFailureError, JobInvocationId, JobQueueProcessor, NatsProcessor, ServicesContext,
+    TransactionsError,
 };
 use futures::{FutureExt, Stream, StreamExt};
 use nats_subscriber::{Request, SubscriberError, Subscription};
 use si_data_nats::{NatsClient, NatsConfig, NatsError};
 use si_data_pg::{PgPool, PgPoolConfig, PgPoolError};
+use stream_cancel::StreamExt as StreamCancelStreamExt;
 use telemetry::prelude::*;
 use thiserror::Error;
 use tokio::{
     signal::unix,
     sync::{mpsc, oneshot, watch},
+    task,
 };
+use ulid::Ulid;
 use veritech_client::{Client as VeritechClient, EncryptionKey, EncryptionKeyError};
 
 use crate::{nats_jobs_subject, Config, NATS_JOBS_DEFAULT_QUEUE};
@@ -85,6 +90,7 @@ pub struct Server {
     /// An internal graceful shutdown receiever handle which the server's main thread uses to stop
     /// accepting work when a shutdown event is in progress.
     graceful_shutdown_rx: oneshot::Receiver<()>,
+    metadata: Arc<ServerMetadata>,
 }
 
 impl Server {
@@ -108,6 +114,11 @@ impl Server {
         let veritech = Self::create_veritech_client(nats.clone());
         let job_processor = Self::create_job_processor(nats.clone(), alive_marker);
 
+        let metadata = ServerMetadata {
+            job_instance: config.instance_id().to_string(),
+            job_invoked_provider: "si",
+        };
+
         let graceful_shutdown_rx =
             prepare_graceful_shutdown(external_shutdown_rx, shutdown_watch_tx)?;
 
@@ -123,11 +134,13 @@ impl Server {
             shutdown_watch_rx,
             external_shutdown_tx,
             graceful_shutdown_rx,
+            metadata: Arc::new(metadata),
         })
     }
 
     pub async fn run(mut self) -> Result<()> {
         process_job_requests_task(
+            self.metadata,
             self.concurrency_limit,
             self.pg_pool,
             self.nats,
@@ -190,6 +203,12 @@ impl Server {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ServerMetadata {
+    job_instance: String,
+    job_invoked_provider: &'static str,
+}
+
 pub struct ShutdownHandle {
     shutdown_tx: mpsc::Sender<ShutdownSource>,
 }
@@ -213,17 +232,25 @@ impl Default for ShutdownSource {
     }
 }
 
+pub struct JobItem {
+    metadata: Arc<ServerMetadata>,
+    messaging_destination: Arc<String>,
+    ctx_builder: DalContextBuilder,
+    request: Result<Request<JobInfo>>,
+}
+
 pub struct Subscriber;
 
 impl Subscriber {
     pub async fn jobs(
+        metadata: Arc<ServerMetadata>,
         pg_pool: PgPool,
         nats: NatsClient,
         subject_prefix: Option<&str>,
         veritech: veritech_client::Client,
         job_processor: Box<dyn JobQueueProcessor + Send + Sync>,
         encryption_key: Arc<veritech_client::EncryptionKey>,
-    ) -> Result<impl Stream<Item = (DalContextBuilder, Result<Request<JobInfo>>)>> {
+    ) -> Result<impl Stream<Item = JobItem>> {
         let subject = nats_jobs_subject(subject_prefix);
         debug!(
             messaging.destination = &subject.as_str(),
@@ -241,16 +268,24 @@ impl Subscriber {
         );
         let ctx_builder = DalContext::builder(services_context);
 
+        let messaging_destination = Arc::new(subject.clone());
+
         Ok(Subscription::create(subject)
             .queue_name(NATS_JOBS_DEFAULT_QUEUE)
             .start(&nats)
             .await?
-            .map(move |request| (ctx_builder.clone(), request.map_err(Into::into))))
+            .map(move |request| JobItem {
+                metadata: metadata.clone(),
+                messaging_destination: messaging_destination.clone(),
+                ctx_builder: ctx_builder.clone(),
+                request: request.map_err(Into::into),
+            }))
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn process_job_requests_task(
+    metadata: Arc<ServerMetadata>,
     concurrency_limit: usize,
     pg_pool: PgPool,
     nats: NatsClient,
@@ -261,6 +296,7 @@ async fn process_job_requests_task(
     shutdown_watch_rx: watch::Receiver<()>,
 ) {
     if let Err(err) = process_job_requests(
+        metadata,
         concurrency_limit,
         pg_pool,
         nats,
@@ -278,6 +314,7 @@ async fn process_job_requests_task(
 
 #[allow(clippy::too_many_arguments)]
 async fn process_job_requests(
+    metadata: Arc<ServerMetadata>,
     concurrency_limit: usize,
     pg_pool: PgPool,
     nats: NatsClient,
@@ -288,6 +325,7 @@ async fn process_job_requests(
     mut shutdown_watch_rx: watch::Receiver<()>,
 ) -> Result<()> {
     let requests = Subscriber::jobs(
+        metadata,
         pg_pool,
         nats,
         subject_prefix,
@@ -297,16 +335,55 @@ async fn process_job_requests(
     )
     .await?;
 
-    stream_cancel::StreamExt::take_until_if(requests, shutdown_watch_rx.changed().map(|_| true))
-        .for_each_concurrent(concurrency_limit, |(ctx_builder, request)| async move {
+    requests
+        .take_until_if(shutdown_watch_rx.changed().map(|_| true))
+        .for_each_concurrent(concurrency_limit, |job| async move {
             // Got the next message from the subscriber
-            match request {
+            match job.request {
                 Ok(request) => {
+                    let invocation_id = JobInvocationId::new();
+
                     // Spawn a task and process the request
-                    let _ = tokio::spawn(job_request_task(ctx_builder, request)).await;
+                    match task::Builder::new()
+                        .name("execute-job-task")
+                        .spawn(execute_job_task(
+                            invocation_id,
+                            job.metadata,
+                            job.messaging_destination,
+                            job.ctx_builder,
+                            request,
+                        )) {
+                        // Task has spawned on the runtime and the `JoinHandle` future is provided.
+                        //
+                        // In order for a concurrency limit to be enforced we await the
+                        // `JoinHandle`, which is how `for_each_concurrent` knows the task has
+                        // completed.
+                        Ok(join_handle) => {
+                            if let Err(err) = join_handle.await {
+                                // NOTE(fnichol): This likely happens when there is contention or
+                                // an error in the Tokio runtime so we will be loud and log an
+                                // error under the assumptions that 1) this event rarely
+                                // happens and 2) the task code did not contribute to trigger
+                                // the `JoinError`.
+                                error!(
+                                    error = ?err,
+                                    "execute-job-task failed to execute to completion"
+                                );
+                            }
+                        }
+                        // Tokio failed to successfully span a new task on the runtime.
+                        //
+                        // NOTE(fnichol): While this is a catastrophic failure, there is also not
+                        // much we can do and the job will *not* have been attempted as a
+                        // result, which is why until we have job retry logic, we log and error
+                        // and not a warn.
+                        Err(err) => {
+                            error!(error = ?err, "failed to spawn execute-job-task");
+                        }
+                    };
                 }
                 Err(err) => {
-                    warn!(error = ?err, "next job request had an error");
+                    warn!(error = ?err, "next job request had an error, job will not be executed");
                 }
             }
         })
@@ -315,13 +392,61 @@ async fn process_job_requests(
     Ok(())
 }
 
-async fn job_request_task(ctx_builder: DalContextBuilder, request: Request<JobInfo>) {
-    if let Err(err) = job_request(ctx_builder, request).await {
-        warn!(error = ?err, "job execution failed");
+#[instrument(
+    name = "execute_job_task",
+    skip_all,
+    level = "info",
+    fields(
+        job.trigger = "pubsub",
+        job.instance = metadata.job_instance,
+        job.invocation_id = %id,
+        job.invoked_name = request.payload.kind,
+        job.invoked_provider = metadata.job_invoked_provider,
+        messaging.destination = Empty,
+        messaging.destination_kind = "topic",
+        messaging.operation = "process",
+        otel.kind = %FormattedSpanKind(SpanKind::Consumer),
+        otel.name = Empty,
+        otel.status_code = Empty,
+        otel.status_message = Empty,
+    )
+)]
+async fn execute_job_task(
+    id: JobInvocationId,
+    metadata: Arc<ServerMetadata>,
+    messaging_destination: Arc<String>,
+    ctx_builder: DalContextBuilder,
+    request: Request<JobInfo>,
+) {
+    let span = Span::current();
+
+    span.record("messaging.destination", messaging_destination.as_str());
+    span.record(
+        "otel.name",
+        format!("{} process", &messaging_destination).as_str(),
+    );
+
+    match execute_job(id, &metadata, messaging_destination, ctx_builder, request).await {
+        Ok(_) => span.record_ok(),
+        Err(err) => {
+            error!(
+                error = ?err,
+                job.invocation_id = %id,
+                job.instance = &metadata.job_instance,
+                "job execution failed"
+            );
+            span.record_err(err);
+        }
     }
 }
 
-async fn job_request(ctx_builder: DalContextBuilder, request: Request<JobInfo>) -> Result<()> {
+async fn execute_job(
+    _id: JobInvocationId,
+    _metadata: &Arc<ServerMetadata>,
+    _messaging_destination: Arc<String>,
+    ctx_builder: DalContextBuilder,
+    request: Request<JobInfo>,
+) -> Result<()> {
     let (job_info, _) = request.into_parts();
     info!(id = %job_info.id, kind = %job_info.kind, args = ?job_info.args, "\n\n\nexecuting job");
     trace!(backtrace = %job_info.backtrace, "caller backtrace");
