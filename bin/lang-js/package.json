@@ -21,18 +21,18 @@
     "clean": "rm -rf ./dist ./target",
     "build": "tsc",
     "build:check": "tsc --noEmit --skipLibCheck",
-    "build:clean": "npm run clean && npm run build",
-    "build:watch": "npm run clean && tsc --watch",
+    "build:clean": "pnpm run clean && pnpm run build",
+    "build:watch": "pnpm run clean && tsc --watch",
     "package": "pnpm run build && pkg . --output ./target/lang-js",
     "jsbuild:backend": "pnpm package",
-    "watch": "npm run build:watch",
+    "watch": "pnpm run build:watch",
     "lint": "eslint --ext .ts,.js --ignore-path .gitignore src",
     "lint:fix": "eslint --fix",
-    "fmt": "npm run lint:fix",
-    "fmt:check": "npm run lint",
-    "check": "npm run lint && npm run build:check && npm run fmt:check",
-    "dev": "npm run start",
-    "start": "npm run build && node ./dist/index.js",
+    "fmt": "pnpm run lint:fix",
+    "fmt:check": "pnpm run lint",
+    "check": "pnpm run lint && pnpm run build:check && pnpm run fmt:check",
+    "dev": "pnpm run start",
+    "start": "pnpm run build && node ./dist/index.js",
     "test": "jest",
     "test:watch": "jest --watch --forceExit",
     "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand"
@@ -69,6 +69,7 @@
     "vm2": "^3.9.11"
   },
   "volta": {
-    "extends": "../../package.json"
+    "extends": "../../package.json",
+    "node": "16.20.0"
   }
 }

@@ -1,9 +1,13 @@
+---
 packages:
-  # frontend
-  - 'app/*'
+  - app/auth-portal
+  - app/web
+  - bin/auth-api
+  - bin/lang-js
+  - lib/eslint-config
+  - lib/ts-lib
+  - lib/tsconfig
+  - lib/vue-lib
 
-  # backend
-  - 'bin/*'
-  - 'lib/*'
-
-  - '!bin/si-discord-bot' # TODO - fix this
+  # TODO: fix this
+  - '!bin/si-discord-bot'
