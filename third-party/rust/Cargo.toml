@@ -83,6 +83,7 @@ refinery = { version = "0.8.9", features = ["tokio-postgres"] }
 regex = "1.8.1"
 remain = "0.2.8"
 reqwest = { version = "0.11.17", default-features = false, features = ["rustls-tls", "json", "multipart"] }
+ring = "=0.17.5" # Upgrading this is possible, but a pain, so we don't want to pick up every new minor version (see: https://github.com/facebook/buck2/commit/91af40b66960d003067c3d241595fb53d1e636c8)
 rust-s3 = { version = "0.33.0", default-features = false, features = ["tokio-rustls-tls"] }
 rustls = "0.21.6" # pinned, pending update from tokio-rustls for async-nats
 sea-orm = { version = "0.11", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-chrono", "debug-print"] }
