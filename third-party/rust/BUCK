@@ -14063,25 +14063,6 @@ cargo.rust_library(
 )
 
 http_archive(
-    name = "smallstr-0.2.0.crate",
-    sha256 = "1e922794d168678729ffc7e07182721a14219c65814e66e91b839a272fe5ae4f",
-    strip_prefix = "smallstr-0.2.0",
-    urls = ["https://crates.io/api/v1/crates/smallstr/0.2.0/download"],
-    visibility = [],
-)
-
-cargo.rust_library(
-    name = "smallstr-0.2.0",
-    srcs = [":smallstr-0.2.0.crate"],
-    crate = "smallstr",
-    crate_root = "smallstr-0.2.0.crate/src/lib.rs",
-    edition = "2018",
-    features = ["union"],
-    visibility = [],
-    deps = [":smallvec-1.11.2"],
-)
-
-http_archive(
     name = "smallstr-0.3.0.crate",
     sha256 = "63b1aefdf380735ff8ded0b15f31aab05daf1f70216c01c02a12926badd1df9d",
     strip_prefix = "smallstr-0.3.0",
@@ -15300,7 +15281,7 @@ cargo.rust_binary(
         ":vfs-0.9.0",
         ":vfs-tar-0.4.0",
         ":y-sync-0.3.1",
-        ":yrs-0.16.10",
+        ":yrs-0.17.2",
     ],
 )
 
@@ -18133,33 +18114,8 @@ cargo.rust_library(
 
 alias(
     name = "yrs",
-    actual = ":yrs-0.16.10",
+    actual = ":yrs-0.17.2",
     visibility = ["PUBLIC"],
-)
-
-http_archive(
-    name = "yrs-0.16.10.crate",
-    sha256 = "0c48071f2693893c866cffdad3e6a931aefcd14e4400d45353a0e3f91a96e80b",
-    strip_prefix = "yrs-0.16.10",
-    urls = ["https://crates.io/api/v1/crates/yrs/0.16.10/download"],
-    visibility = [],
-)
-
-cargo.rust_library(
-    name = "yrs-0.16.10",
-    srcs = [":yrs-0.16.10.crate"],
-    crate = "yrs",
-    crate_root = "yrs-0.16.10.crate/src/lib.rs",
-    edition = "2018",
-    visibility = [],
-    deps = [
-        ":atomic_refcell-0.1.13",
-        ":lib0-0.16.10",
-        ":rand-0.7.3",
-        ":smallstr-0.2.0",
-        ":smallvec-1.11.2",
-        ":thiserror-1.0.50",
-    ],
 )
 
 http_archive(

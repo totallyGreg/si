@@ -4529,15 +4529,6 @@ dependencies = [
 
 [[package]]
 name = "smallstr"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e922794d168678729ffc7e07182721a14219c65814e66e91b839a272fe5ae4f"
-dependencies = [
- "smallvec",
-]
-
-[[package]]
-name = "smallstr"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b1aefdf380735ff8ded0b15f31aab05daf1f70216c01c02a12926badd1df9d"
@@ -5052,7 +5043,7 @@ dependencies = [
  "vfs",
  "vfs-tar",
  "y-sync",
- "yrs 0.16.10",
+ "yrs",
 ]
 
 [[package]]
@@ -6244,7 +6235,7 @@ dependencies = [
  "lib0",
  "thiserror",
  "tokio",
- "yrs 0.17.2",
+ "yrs",
 ]
 
 [[package]]
@@ -6252,20 +6243,6 @@ name = "yansi"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
-
-[[package]]
-name = "yrs"
-version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c48071f2693893c866cffdad3e6a931aefcd14e4400d45353a0e3f91a96e80b"
-dependencies = [
- "atomic_refcell",
- "lib0",
- "rand 0.7.3",
- "smallstr 0.2.0",
- "smallvec",
- "thiserror",
-]
 
 [[package]]
 name = "yrs"
@@ -6277,7 +6254,7 @@ dependencies = [
  "rand 0.7.3",
  "serde",
  "serde_json",
- "smallstr 0.3.0",
+ "smallstr",
  "smallvec",
  "thiserror",
 ]

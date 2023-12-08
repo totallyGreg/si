@@ -4528,7 +4528,7 @@ dependencies = [
  "url",
  "veritech-client",
  "y-sync",
- "yrs 0.16.10",
+ "yrs",
 ]
 
 [[package]]
@@ -5195,15 +5195,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "smallstr"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e922794d168678729ffc7e07182721a14219c65814e66e91b839a272fe5ae4f"
-dependencies = [
- "smallvec",
 ]
 
 [[package]]
@@ -6917,7 +6908,7 @@ dependencies = [
  "lib0",
  "thiserror",
  "tokio",
- "yrs 0.17.2",
+ "yrs",
 ]
 
 [[package]]
@@ -6937,20 +6928,6 @@ checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
 
 [[package]]
 name = "yrs"
-version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c48071f2693893c866cffdad3e6a931aefcd14e4400d45353a0e3f91a96e80b"
-dependencies = [
- "atomic_refcell",
- "lib0",
- "rand 0.7.3",
- "smallstr 0.2.0",
- "smallvec",
- "thiserror",
-]
-
-[[package]]
-name = "yrs"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68aea14c6c33f2edd8a5ff9415360cfa5b98d90cce30c5ee3be59a8419fb15a9"
@@ -6959,7 +6936,7 @@ dependencies = [
  "rand 0.7.3",
  "serde",
  "serde_json",
- "smallstr 0.3.0",
+ "smallstr",
  "smallvec",
  "thiserror",
 ]
