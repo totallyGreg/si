@@ -8,14 +8,19 @@ Cypress._.times(import.meta.env.VITE_SI_CYPRESS_MULTIPLIER ? import.meta.env.VIT
     });
 
     it('delete', () => {
+
       cy.visit('/')
+      
       cy.sendPosthogEvent(Cypress.currentTest.titlePath.join("/"), "test_uuid", import.meta.env.VITE_UUID ? import.meta.env.VITE_UUID: "local");
+
       cy.get('#vorm-input-3', { timeout: 30000 }).should('have.value', 'Change Set 1');
       
-      cy.get('#vorm-input-3').clear().type(import.meta.env.VITE_UUID ? import.meta.env.VITE_UUID: "local");
-
-      cy.get('#vorm-input-3', { timeout: 30000 }).should('have.value', import.meta.env.VITE_UUID ? import.meta.env.VITE_UUID: "local");
-
+      // Create a new changeset with a UUID
+      const uuid = import.meta.env.VITE_UUID;
+      const testTitlePath = Cypress.currentTest.titlePath.join("/");
+      const valueToType = uuid ? `${uuid}-${testTitlePath}` : `local-${testTitlePath}`;
+      cy.get('#vorm-input-3').clear().type(valueToType);
+      cy.get('#vorm-input-3', { timeout: 30000 }).should('have.value', valueToType);
       cy.contains('Create change set', { timeout: 30000 }).click();
 
       // Give time to redirect onto the new changeset
