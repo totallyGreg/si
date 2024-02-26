@@ -37,6 +37,7 @@ members = [
     "lib/si-hash",
     "lib/si-pkg",
     "lib/si-posthog-rs",
+    "lib/si-service",
     "lib/si-settings",
     "lib/si-std",
     "lib/si-test-macros",
