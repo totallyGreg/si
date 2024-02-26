@@ -1039,13 +1039,10 @@ name = "council"
 version = "0.1.0"
 dependencies = [
  "clap",
- "color-eyre",
  "council-server",
  "si-service",
  "si-std",
  "telemetry-application",
- "tokio",
- "tokio-util",
 ]
 
 [[package]]
@@ -5069,6 +5066,7 @@ version = "0.1.0"
 dependencies = [
  "color-eyre",
  "telemetry",
+ "telemetry-application",
  "thiserror",
  "tokio",
  "tokio-util",
