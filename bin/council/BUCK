@@ -9,12 +9,9 @@ rust_binary(
     name = "council",
     deps = [
         "//lib/council-server:council-server",
+        "//lib/si-service:si-service",
         "//lib/si-std:si-std",
-        "//lib/telemetry-application-rs:telemetry-application",
         "//third-party/rust:clap",
-        "//third-party/rust:color-eyre",
-        "//third-party/rust:tokio",
-        "//third-party/rust:tokio-util",
     ],
     srcs = glob(["src/**/*.rs"]),
 )

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
 
-use council_server::server::config::{Config, ConfigError, ConfigFile, StandardConfigFile};
+use council_server::{Config, ConfigError, ConfigFile, StandardConfigFile};
 use si_std::SensitiveString;
 
 const NAME: &str = "council";

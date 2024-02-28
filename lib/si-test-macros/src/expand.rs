@@ -212,6 +212,9 @@ pub(crate) trait FnSetupExpander {
     fn council_server(&self) -> Option<&Rc<Ident>>;
     fn set_council_server(&mut self, value: Option<Rc<Ident>>);
 
+    fn council_shutdown_handle(&self) -> Option<&Rc<Ident>>;
+    fn set_council_shutdown_handle(&mut self, value: Option<Rc<Ident>>);
+
     fn start_council_server(&self) -> Option<()>;
     fn set_start_council_server(&mut self, value: Option<()>);
 
@@ -293,18 +296,33 @@ pub(crate) trait FnSetupExpander {
             return ident.clone();
         }
 
-        let test_context = self.setup_test_context();
-        let test_context = test_context.as_ref();
+        let services_context = self.setup_services_context();
+        let services_context = services_context.as_ref();
 
         let var = Ident::new("council_server", Span::call_site());
         self.code_extend(quote! {
-            let #var = ::dal_test::council_server(
-                #test_context.nats_config().clone(),
-            ).await?;
+            let #var = ::dal_test::council_server(&#services_context).await?;
         });
         self.set_council_server(Some(Rc::new(var)));
 
         self.council_server().unwrap().clone()
+    }
+
+    fn setup_council_shutdown_handle(&mut self) -> Rc<Ident> {
+        if let Some(ident) = self.council_shutdown_handle() {
+            return ident.clone();
+        }
+
+        let council_server = self.setup_council_server();
+        let council_server = council_server.as_ref();
+
+        let var = Ident::new("council_shutdown_handle", Span::call_site());
+        self.code_extend(quote! {
+            let #var = #council_server.shutdown_handle();
+        });
+        self.set_council_shutdown_handle(Some(Rc::new(var)));
+
+        self.council_shutdown_handle().unwrap().clone()
     }
 
     fn setup_start_council_server(&mut self) {
@@ -316,15 +334,7 @@ pub(crate) trait FnSetupExpander {
         let council_server = council_server.as_ref();
 
         self.code_extend(quote! {
-            {
-                let (_, shutdown_request_rx) = ::tokio::sync::watch::channel(());
-                let (
-                    subscriber_started_tx,
-                    mut subscriber_started_rx
-                ) = ::tokio::sync::watch::channel(());
-                ::tokio::spawn(#council_server.run(subscriber_started_tx, shutdown_request_rx));
-                subscriber_started_rx.changed().await.unwrap()
-            }
+            ::tokio::spawn(#council_server.run());
         });
         self.set_start_council_server(Some(()));
     }

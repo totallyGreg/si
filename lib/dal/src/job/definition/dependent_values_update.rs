@@ -1,25 +1,30 @@
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+};
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use council_server::ManagementResponse;
+use council_client::{Acker, ChangeSetCollaboration, Client, Status};
+use futures::TryStreamExt as _;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::{collections::HashMap, convert::TryFrom};
 use telemetry::prelude::*;
-use tokio::task::JoinSet;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::property_editor;
-use crate::tasks::StatusReceiverClient;
-use crate::tasks::StatusReceiverRequest;
-use crate::{diagram, ComponentId};
 use crate::{
-    job::consumer::{
-        JobConsumer, JobConsumerError, JobConsumerMetadata, JobConsumerResult, JobInfo,
+    diagram,
+    job::{
+        consumer::{
+            JobConsumer, JobConsumerError, JobConsumerMetadata, JobConsumerResult, JobInfo,
+        },
+        producer::{JobProducer, JobProducerResult},
     },
-    job::producer::{JobProducer, JobProducerResult},
+    property_editor,
+    tasks::{StatusReceiverClient, StatusReceiverRequest},
     AccessBuilder, AttributeValue, AttributeValueError, AttributeValueId, AttributeValueResult,
-    DalContext, Prop, StandardModel, StatusUpdater, Visibility, WsEvent,
+    ChangeSetPk, ComponentId, DalContext, FuncBindingReturnValue, InternalProvider, Prop,
+    StandardModel, StatusUpdater, Visibility, WsEvent,
 };
-use crate::{FuncBindingReturnValue, InternalProvider};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct DependentValuesUpdateArgs {
@@ -93,49 +98,27 @@ impl JobConsumer for DependentValuesUpdate {
         skip_all,
         level = "info",
         fields(
-            attribute_values = ?self.attribute_values,
+            si.workspace.pk = Empty,
+            si.change_set.pk = %self.visibility().change_set_pk,
+            si.council.client.id = Empty,
+            si.attribute_value.ids = ?self.attribute_values,
         )
     )]
     async fn run(&self, ctx: &mut DalContext) -> JobConsumerResult<()> {
-        let jid = council_server::Id::from_string(&self.job_id().unwrap())?;
-        let mut council = council_server::Client::new(
-            ctx.nats_conn().clone(),
-            ctx.nats_conn()
+        let span = Span::current();
+        if let Some(workspace_pk) = ctx.tenancy().workspace_pk() {
+            span.record("si.workspace.pk", workspace_pk.to_string());
+        }
+
+        let council_client = {
+            let nats_client = ctx.nats_conn().clone();
+            let subject_prefix = nats_client
                 .metadata()
                 .subject_prefix()
-                .map(|p| p.to_string()),
-            jid,
-            self.visibility().change_set_pk.into(),
-        )
-        .await?;
-        let pub_council = council.clone_into_pub();
-        let council_management = council_server::ManagementClient::new(
-            ctx.nats_conn(),
-            ctx.nats_conn()
-                .metadata()
-                .subject_prefix()
-                .map(|p| p.to_string()),
-        )
-        .await?;
+                .map(|str| str.to_owned());
+            Client::from_services(nats_client, subject_prefix).await?
+        };
 
-        let res = self
-            .inner_run(ctx, &mut council, pub_council, council_management)
-            .await;
-
-        council.bye().await?;
-
-        res
-    }
-}
-
-impl DependentValuesUpdate {
-    async fn inner_run(
-        &self,
-        ctx: &mut DalContext,
-        council: &mut council_server::Client,
-        pub_council: council_server::PubClient,
-        mut management_council: council_server::ManagementClient,
-    ) -> JobConsumerResult<()> {
         // TODO(nick,paulo,zack,jacob): ensure we do not _have_ to do this in the future.
         ctx.update_without_deleted_visibility();
 
@@ -176,14 +159,14 @@ impl DependentValuesUpdate {
         // Cache the original dependency graph to send the status receiver.
         let original_dependency_graph = dependency_graph.clone();
 
-        council
-            .register_dependency_graph(
-                dependency_graph
-                    .iter()
-                    .map(|(key, value)| (key.into(), value.iter().map(Into::into).collect()))
-                    .collect(),
+        let collaboration = council_client
+            .collaborate_on_change_set(
+                self.visibility().change_set_pk,
+                DependencyGraph(dependency_graph.clone()),
             )
             .await?;
+
+        span.record("si.council.client.id", collaboration.id().to_string());
 
         let mut enqueued: Vec<AttributeValueId> = dependency_graph.keys().copied().collect();
         enqueued.extend(dependency_graph.values().flatten().copied());
@@ -193,28 +176,157 @@ impl DependentValuesUpdate {
         // do writes
         ctx.rollback().await?;
 
-        let mut update_tasks = JoinSet::new();
+        let res = self
+            .inner_run(
+                ctx,
+                status_updater,
+                &collaboration,
+                dependency_graph,
+                original_dependency_graph,
+            )
+            .await;
 
-        // This is the core loop. Use both the individual and the management subscription to determine what to do next.
-        let needs_restart = tokio::select! {
-            result = self.listen(ctx, council, pub_council, dependency_graph, &mut status_updater, &mut update_tasks) => result,
-            management_result = self.listen_management(&mut management_council) => management_result,
-        }?;
+        collaboration.shutdown().await?;
 
-        // If we need to restart, we need to stop what we are doing, tell the status update that we are stopping, and
-        // then re-enqueue ourselves.
-        if needs_restart {
-            update_tasks.abort_all();
+        res
+    }
+}
 
-            info!(?self.attribute_values, "aborted update tasks and restarting job");
+impl DependentValuesUpdate {
+    async fn inner_run(
+        &self,
+        ctx: &mut DalContext,
+        mut status_updater: StatusUpdater,
+        collaboration: &ChangeSetCollaboration,
+        mut dependency_graph: HashMap<AttributeValueId, Vec<AttributeValueId>>,
+        original_dependency_graph: HashMap<AttributeValueId, Vec<AttributeValueId>>,
+    ) -> JobConsumerResult<()> {
+        let task_tracker = TaskTracker::new();
+        let cancel_token = CancellationToken::new();
 
-            status_updater
-                .values_completed(ctx, self.attribute_values.clone())
-                .await;
+        let ctx_builder = ctx.to_builder();
 
-            ctx.enqueue_dependent_values_update(self.attribute_values.clone())
-                .await?;
+        let mut statuses = collaboration.statuses().await?;
+        let acker = collaboration.clone_acker();
+
+        while let Some(status) = statuses.try_next().await? {
+            debug!(?status, "incoming status");
+
+            match status {
+                // We receive a request for our client to process an attribute value
+                Status::Process(attribute_value_id) => {
+                    acker.ack_pending(attribute_value_id).await?;
+
+                    status_updater
+                        .values_running(ctx, vec![attribute_value_id.into()])
+                        .await;
+                    // Status updater reads from the database and uses its own connection
+                    // from the pg_pool to do writes
+                    ctx.rollback().await?;
+
+                    let task_ctx = ctx_builder
+                        .build(self.access_builder().build(self.visibility()))
+                        .await?;
+                    let acker = collaboration.clone_acker();
+                    let attribute_value_id = Into::<AttributeValueId>::into(attribute_value_id);
+                    let change_set_pk = task_ctx.visibility().change_set_pk;
+                    let cancel_token = cancel_token.clone();
+                    let client_id = collaboration.id();
+                    let this_span = Span::current();
+
+                    task_tracker.spawn(async move {
+                        tokio::select! {
+                            result = update_value(
+                                task_ctx,
+                                acker,
+                                attribute_value_id,
+                                this_span,
+                            ) => {
+                                if let Err(err) = result {
+                                    warn!(
+                                        si.council.client.id = %client_id,
+                                        si.change_set.pk = %change_set_pk,
+                                        si.attribute_value.id = %attribute_value_id,
+                                        error = ?err,
+                                        "error updating value",
+                                    );
+                                }
+                            }
+                            _ = cancel_token.cancelled() => {
+                                debug!(
+                                    si.council.client.id = %client_id,
+                                    si.change_set.pk = %change_set_pk,
+                                    si.attribute_value.id = %attribute_value_id,
+                                    "cancelled update value",
+                                );
+                            }
+                        }
+                    });
+                }
+                // A status that tells us an attribute value has been processed and can be removed
+                // from the dependency graph
+                Status::Available(attribute_value_id) => {
+                    dependency_graph.remove(&attribute_value_id.into());
+
+                    // Send a completed status for this value and *remove* it from the hash
+                    status_updater
+                        .values_completed(ctx, vec![attribute_value_id.into()])
+                        .await;
+                    // Status updater reads from the database and uses its own connection from
+                    // the pg_pool to do writes
+                    ctx.rollback().await?;
+                }
+                // A status that tells us an attribute value has failed to be processed and will
+                // never be re-attempted in this collaboration.
+                Status::Failed(attribute_value_id) => {
+                    dependency_graph.remove(&attribute_value_id.into());
+
+                    // Send a completed status for this value and *remove* it from the hash
+                    status_updater
+                        .values_completed(ctx, vec![attribute_value_id.into()])
+                        .await;
+                    // Status updater reads from the database and uses its own connection from
+                    // the pg_pool to do writes
+                    ctx.rollback().await?;
+                }
+                // A status that tells us an attribute value has been marked orphaned by council
+                Status::Orphaned(attribute_value_id) => {
+                    if dependency_graph.get(&attribute_value_id.into()).is_some() {
+                        warn!(
+                            si.council.client.id = %collaboration.id(),
+                            si.change_set.pk = %ctx.visibility().change_set_pk,
+                            si.attribute_value.id = %attribute_value_id,
+                            "council reported orphan, but value is present in local graph",
+                        );
+
+                        // Proceed as if "available" or "failed"
+
+                        dependency_graph.remove(&attribute_value_id.into());
+
+                        // Send a completed status for this value and *remove* it from the hash
+                        status_updater
+                            .values_completed(ctx, vec![attribute_value_id.into()])
+                            .await;
+                        // Status updater reads from the database and uses its own connection from
+                        // the pg_pool to do writes
+                        ctx.rollback().await?;
+                    }
+                }
+                // A status that tells us an attribute value is being processed by another client
+                Status::ProcessingByAnother(attribute_value_id, client_id) => {
+                    trace!(
+                        si.council.client.id = %collaboration.id(),
+                        si.change_set.pk = %ctx.visibility().change_set_pk,
+                        si.attribute_value.id = %attribute_value_id,
+                        "value processing by another client ({})",
+                        client_id,
+                    );
+                }
+            }
         }
+
+        task_tracker.close();
+        task_tracker.wait().await;
 
         // No matter what, we need to finish the updater
         status_updater.finish(ctx).await;
@@ -235,153 +347,6 @@ impl DependentValuesUpdate {
 
         Ok(())
     }
-
-    #[instrument(
-        name = "dependent_values_update.listen",
-        level = "info",
-        skip_all,
-        fields()
-    )]
-    async fn listen(
-        &self,
-        ctx: &DalContext,
-        council: &mut council_server::Client,
-        pub_council: council_server::PubClient,
-        mut dependency_graph: HashMap<AttributeValueId, Vec<AttributeValueId>>,
-        status_updater: &mut StatusUpdater,
-        update_tasks: &mut JoinSet<JobConsumerResult<()>>,
-    ) -> JobConsumerResult<bool> {
-        let ctx_builder = ctx.to_builder();
-        let mut needs_restart = false;
-
-        while !dependency_graph.is_empty() {
-            match council.fetch_response().await? {
-                Some(response) => match response {
-                    council_server::Response::OkToProcess { node_ids } => {
-                        debug!(?node_ids, job_id = ?self.job_id(), "Ok to start processing nodes");
-                        for node_id in node_ids {
-                            let id = AttributeValueId::from(node_id);
-
-                            status_updater.values_running(ctx, vec![id]).await;
-                            // Status updater reads from the database and uses its own connection
-                            // from the pg_pool to do writes
-                            ctx.rollback().await?;
-
-                            let task_ctx = ctx_builder
-                                .build(self.access_builder().build(self.visibility()))
-                                .await?;
-
-                            let attribute_value = AttributeValue::get_by_id(&task_ctx, &id)
-                                .await?
-                                .ok_or_else(|| {
-                                    AttributeValueError::NotFound(id, self.visibility())
-                                })?;
-                            update_tasks.spawn(update_value(
-                                task_ctx,
-                                attribute_value,
-                                pub_council.clone(),
-                                Span::current(),
-                            ));
-                        }
-                    }
-                    council_server::Response::BeenProcessed { node_id } => {
-                        debug!(?node_id, job_id = ?self.job_id(), "Node has been processed by a job");
-                        let id = AttributeValueId::from(node_id);
-                        dependency_graph.remove(&id);
-
-                        // Send a completed status for this value and *remove* it from the hash
-                        status_updater.values_completed(ctx, vec![id]).await;
-
-                        ctx.commit().await?;
-                    }
-                    council_server::Response::Failed { node_id } => {
-                        debug!(?node_id, job_id = ?self.job_id(), "Node failed on another job");
-                        let id = AttributeValueId::from(node_id);
-                        dependency_graph.remove(&id);
-
-                        // Send a completed status for this value and *remove* it from the hash
-                        status_updater.values_completed(ctx, vec![id]).await;
-                        // Status updater reads from the database and uses its own connection from
-                        // the pg_pool to do writes
-                        ctx.rollback().await?;
-                    }
-                    council_server::Response::Restart => {
-                        info!("received response that job needs restart");
-                        needs_restart = true;
-
-                        // Ejecto seato cuz.
-                        break;
-                    }
-                    council_server::Response::Shutdown => break,
-                },
-                None => {
-                    // FIXME(nick): reconnect. Same "FIXME" as the one found in the original listener.
-                    warn!("subscriber has been unsubscribed or the connection has been closed");
-                    break;
-                }
-            }
-
-            ctx.commit().await?;
-
-            // If we get `None` back from the `JoinSet` that means that there are no
-            // further tasks in the `JoinSet` for us to wait on. This should only happen
-            // after we've stopped adding new tasks to the `JoinSet`, which means either:
-            //   * We have completely walked the initial graph, and have visited every
-            //     node.
-            //   * We've encountered a cycle that means we can no longer make any
-            //     progress on walking the graph.
-            // In both cases, there isn't anything more we can do, so we can stop looking
-            // at the graph to find more work.
-            while let Some(future_result) = update_tasks.join_next().await {
-                // We get back a `Some<Result<Result<..>>>`. We've already unwrapped the
-                // `Some`, the outermost `Result` is a `JoinError` to let us know if
-                // anything went wrong in joining the task.
-                match future_result {
-                    // We have successfully updated a value
-                    Ok(Ok(())) => {}
-                    // There was an error (with our code) when updating the value
-                    Ok(Err(err)) => {
-                        warn!(error = ?err, "error updating value");
-                        return Err(err);
-                    }
-                    // There was a Tokio JoinSet error when joining the task back (i.e. likely
-                    // I/O error)
-                    Err(err) => {
-                        warn!(error = ?err, "error when joining update task");
-                        return Err(err.into());
-                    }
-                }
-            }
-        }
-
-        Ok(needs_restart)
-    }
-
-    #[instrument(
-        name = "dependent_values_update.listen_management",
-        level = "info",
-        skip_all,
-        fields()
-    )]
-    async fn listen_management(
-        &self,
-        council_management: &mut council_server::ManagementClient,
-    ) -> JobConsumerResult<bool> {
-        let needs_restart = match council_management.fetch_response().await? {
-            Some(management_response) => match management_response {
-                ManagementResponse::Restart => true,
-            },
-            None => {
-                // FIXME(nick): reconnect. Same "FIXME" as the one found in the original listener.
-                warn!(
-                    "management subscriber has been unsubscribed or the connection has been closed"
-                );
-                false
-            }
-        };
-        info!("received management response that job needs restart");
-        Ok(needs_restart)
-    }
 }
 
 /// Wrapper around `AttributeValue.update_from_prototype_function(&ctx)` to get it to
@@ -392,28 +357,36 @@ impl DependentValuesUpdate {
     skip_all,
     level = "info",
     fields(
-        attribute_value.id = %attribute_value.id(),
+        si.change_set.pk = %ctx.visibility().change_set_pk,
+        si.attribute_value.id = %attribute_value_id,
+        si.council.client.id = %council_acker.id(),
     )
 )]
 async fn update_value(
     ctx: DalContext,
-    mut attribute_value: AttributeValue,
-    council: council_server::PubClient,
+    council_acker: Acker,
+    attribute_value_id: AttributeValueId,
     parent_span: Span,
 ) -> JobConsumerResult<()> {
+    let mut attribute_value = AttributeValue::get_by_id(&ctx, &attribute_value_id)
+        .await?
+        .ok_or_else(|| AttributeValueError::NotFound(attribute_value_id, *ctx.visibility()))?;
+
     let update_result = attribute_value.update_from_prototype_function(&ctx).await;
-    // We don't propagate the error up, because we want the rest of the nodes in the graph to make progress
-    // if they are able to.
+    // We don't propagate the error up, because we want the rest of the nodes in the graph to make
+    // progress if they are able to.
     if update_result.is_err() {
-        error!(?update_result, attribute_value_id = %attribute_value.id(), "Error updating AttributeValue");
-        council
-            .failed_processing_value(attribute_value.id().into())
-            .await?;
+        error!(
+            si.attribute_value.id = %attribute_value.id(),
+            ?update_result,
+            "Error updating AttributeValue",
+        );
+        council_acker.nack_processed(attribute_value_id).await?;
         ctx.rollback().await?;
     }
 
-    // If this is for an internal provider corresponding to a root prop for the schema variant of an existing component,
-    // then we want to update summary tables.
+    // If this is for an internal provider corresponding to a root prop for the schema variant of
+    // an existing component, then we want to update summary tables.
     let value = if let Some(fbrv) =
         FuncBindingReturnValue::get_by_id(&ctx, &attribute_value.func_binding_return_value_id())
             .await?
@@ -446,7 +419,7 @@ async fn update_value(
     ctx.commit().await?;
 
     if update_result.is_ok() {
-        council.processed_value(attribute_value.id().into()).await?;
+        council_acker.ack_processed(attribute_value_id).await?;
     }
 
     Prop::run_validation(
@@ -635,4 +608,42 @@ async fn dependency_graph_to_dot(
     let dot_digraph = format!("digraph G {{{node_definitions}{node_graph}}}");
 
     Ok(dot_digraph)
+}
+
+impl From<ChangeSetPk> for council_client::ChangeSetPk {
+    fn from(value: ChangeSetPk) -> Self {
+        value.into_inner().into()
+    }
+}
+
+impl From<council_client::ChangeSetPk> for ChangeSetPk {
+    fn from(value: council_client::ChangeSetPk) -> Self {
+        value.into_inner().into()
+    }
+}
+
+impl From<AttributeValueId> for council_client::AttributeValueId {
+    fn from(value: AttributeValueId) -> Self {
+        value.into_inner().into()
+    }
+}
+
+impl From<council_client::AttributeValueId> for AttributeValueId {
+    fn from(value: council_client::AttributeValueId) -> Self {
+        value.into_inner().into()
+    }
+}
+
+struct DependencyGraph(HashMap<AttributeValueId, Vec<AttributeValueId>>);
+
+impl From<DependencyGraph> for council_client::DependencyGraph {
+    fn from(value: DependencyGraph) -> Self {
+        let map: HashMap<council_client::AttributeValueId, Vec<council_client::AttributeValueId>> =
+            value
+                .0
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into_iter().map(Into::into).collect()))
+                .collect();
+        map.into()
+    }
 }

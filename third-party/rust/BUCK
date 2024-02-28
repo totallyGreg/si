@@ -130,18 +130,18 @@ cargo.rust_library(
 )
 
 http_archive(
-    name = "ahash-0.8.9.crate",
-    sha256 = "d713b3834d76b85304d4d525563c1276e2e30dc97cc67bfb4585a4a29fc2c89f",
-    strip_prefix = "ahash-0.8.9",
-    urls = ["https://crates.io/api/v1/crates/ahash/0.8.9/download"],
+    name = "ahash-0.8.10.crate",
+    sha256 = "8b79b82693f705137f8fb9b37871d99e4f9a7df12b917eed79c3d3954830a60b",
+    strip_prefix = "ahash-0.8.10",
+    urls = ["https://crates.io/api/v1/crates/ahash/0.8.10/download"],
     visibility = [],
 )
 
 cargo.rust_library(
-    name = "ahash-0.8.9",
-    srcs = [":ahash-0.8.9.crate"],
+    name = "ahash-0.8.10",
+    srcs = [":ahash-0.8.10.crate"],
     crate = "ahash",
-    crate_root = "ahash-0.8.9.crate/src/lib.rs",
+    crate_root = "ahash-0.8.10.crate/src/lib.rs",
     edition = "2018",
     features = [
         "default",
@@ -276,18 +276,18 @@ cargo.rust_library(
 )
 
 http_archive(
-    name = "anstream-0.6.12.crate",
-    sha256 = "96b09b5178381e0874812a9b157f7fe84982617e48f71f4e3235482775e5b540",
-    strip_prefix = "anstream-0.6.12",
-    urls = ["https://crates.io/api/v1/crates/anstream/0.6.12/download"],
+    name = "anstream-0.6.13.crate",
+    sha256 = "d96bd03f33fe50a863e394ee9718a706f988b9079b20c3784fb726e7678b62fb",
+    strip_prefix = "anstream-0.6.13",
+    urls = ["https://crates.io/api/v1/crates/anstream/0.6.13/download"],
     visibility = [],
 )
 
 cargo.rust_library(
-    name = "anstream-0.6.12",
-    srcs = [":anstream-0.6.12.crate"],
+    name = "anstream-0.6.13",
+    srcs = [":anstream-0.6.13.crate"],
     crate = "anstream",
-    crate_root = "anstream-0.6.12.crate/src/lib.rs",
+    crate_root = "anstream-0.6.13.crate/src/lib.rs",
     edition = "2021",
     features = [
         "auto",
@@ -1912,7 +1912,7 @@ cargo.rust_library(
     ],
     visibility = [],
     deps = [
-        ":anstream-0.6.12",
+        ":anstream-0.6.13",
         ":anstyle-1.0.6",
         ":clap_lex-0.7.0",
         ":strsim-0.11.0",
@@ -5171,7 +5171,7 @@ cargo.rust_library(
     ],
     visibility = [],
     deps = [
-        ":ahash-0.8.9",
+        ":ahash-0.8.10",
         ":allocator-api2-0.2.16",
     ],
 )
@@ -8532,6 +8532,12 @@ cargo.rust_library(
     crate_root = "parking-2.2.0.crate/src/lib.rs",
     edition = "2018",
     visibility = [],
+)
+
+alias(
+    name = "parking_lot",
+    actual = ":parking_lot-0.12.1",
+    visibility = ["PUBLIC"],
 )
 
 http_archive(
@@ -12059,7 +12065,7 @@ cargo.rust_library(
         ),
     },
     visibility = [],
-    deps = [":tempfile-3.10.0"],
+    deps = [":tempfile-3.10.1"],
 )
 
 http_archive(
@@ -13093,7 +13099,7 @@ cargo.rust_library(
     ],
     visibility = [],
     deps = [
-        ":ahash-0.8.9",
+        ":ahash-0.8.10",
         ":atoi-2.0.0",
         ":bigdecimal-0.3.1",
         ":byteorder-1.5.0",
@@ -13649,24 +13655,24 @@ cargo.rust_library(
 
 alias(
     name = "tempfile",
-    actual = ":tempfile-3.10.0",
+    actual = ":tempfile-3.10.1",
     visibility = ["PUBLIC"],
 )
 
 http_archive(
-    name = "tempfile-3.10.0.crate",
-    sha256 = "a365e8cd18e44762ef95d87f284f4b5cd04107fec2ff3052bd6a3e6069669e67",
-    strip_prefix = "tempfile-3.10.0",
-    urls = ["https://crates.io/api/v1/crates/tempfile/3.10.0/download"],
+    name = "tempfile-3.10.1.crate",
+    sha256 = "85b77fafb263dd9d05cbeac119526425676db3784113aa9295c88498cbf8bff1",
+    strip_prefix = "tempfile-3.10.1",
+    urls = ["https://crates.io/api/v1/crates/tempfile/3.10.1/download"],
     visibility = [],
 )
 
 cargo.rust_library(
-    name = "tempfile-3.10.0",
-    srcs = [":tempfile-3.10.0.crate"],
+    name = "tempfile-3.10.1",
+    srcs = [":tempfile-3.10.1.crate"],
     crate = "tempfile",
-    crate_root = "tempfile-3.10.0.crate/src/lib.rs",
-    edition = "2018",
+    crate_root = "tempfile-3.10.1.crate/src/lib.rs",
+    edition = "2021",
     platform = {
         "linux-arm64": dict(
             deps = [":rustix-0.38.31"],
@@ -13846,6 +13852,7 @@ cargo.rust_binary(
         ":opentelemetry-semantic-conventions-0.13.0",
         ":opentelemetry_sdk-0.21.2",
         ":ouroboros-0.18.3",
+        ":parking_lot-0.12.1",
         ":paste-1.0.14",
         ":pathdiff-0.2.1",
         ":petgraph-0.6.4",
@@ -13877,7 +13884,7 @@ cargo.rust_binary(
         ":strum-0.25.0",
         ":syn-2.0.51",
         ":tar-0.4.40",
-        ":tempfile-3.10.0",
+        ":tempfile-3.10.1",
         ":test-log-0.2.15",
         ":thiserror-1.0.57",
         ":tokio-1.36.0",

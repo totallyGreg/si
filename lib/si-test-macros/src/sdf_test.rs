@@ -212,6 +212,7 @@ struct SdfTestFnSetupExpander {
     test_context: Option<Rc<Ident>>,
     nats_subject_prefix: Option<Rc<Ident>>,
     council_server: Option<Rc<Ident>>,
+    council_shutdown_handle: Option<Rc<Ident>>,
     start_council_server: Option<()>,
     pinga_server: Option<Rc<Ident>>,
     pinga_shutdown_handle: Option<Rc<Ident>>,
@@ -246,6 +247,7 @@ impl SdfTestFnSetupExpander {
             test_context: None,
             nats_subject_prefix: None,
             council_server: None,
+            council_shutdown_handle: None,
             start_council_server: None,
             pinga_server: None,
             pinga_shutdown_handle: None,
@@ -475,6 +477,14 @@ impl FnSetupExpander for SdfTestFnSetupExpander {
 
     fn set_council_server(&mut self, value: Option<Rc<Ident>>) {
         self.council_server = value;
+    }
+
+    fn council_shutdown_handle(&self) -> Option<&Rc<Ident>> {
+        self.council_shutdown_handle.as_ref()
+    }
+
+    fn set_council_shutdown_handle(&mut self, value: Option<Rc<Ident>>) {
+        self.council_shutdown_handle = value;
     }
 
     fn start_council_server(&self) -> Option<()> {

@@ -25,9 +25,9 @@ use si_data_pg::{PgPool, PgPoolConfig};
 use si_std::ResultExt;
 use telemetry::prelude::*;
 use tokio::{fs::File, io::AsyncReadExt, sync::Mutex};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use uuid::Uuid;
 use veritech_client::CycloneEncryptionKey;
-use veritech_server::StandardConfig;
 
 pub use color_eyre::{
     self,
@@ -433,11 +433,21 @@ pub async fn jwt_private_signing_key() -> Result<RS256KeyPair> {
 
 /// Configures and builds a [`council_server::Server`] suitable for running alongside DAL object-related
 /// tests.
-pub async fn council_server(nats_config: NatsConfig) -> Result<council_server::Server> {
-    let config = council_server::server::Config::builder()
-        .nats(nats_config)
-        .build()?;
-    let server = council_server::Server::new_with_config(config).await?;
+pub async fn council_server(services_context: &ServicesContext) -> Result<council_server::Server> {
+    let shutdown_token = CancellationToken::new();
+
+    let config: council_server::Config = council_server::ConfigFile::default()
+        .try_into()
+        .wrap_err("failed to build Council server config")?;
+
+    let server = council_server::Server::from_client_with_config(
+        services_context.nats_conn().clone(),
+        config,
+        shutdown_token,
+    )
+    .await
+    .wrap_err("failed to build Council server config")?;
+
     Ok(server)
 }
 
@@ -497,29 +507,26 @@ async fn global_setup(test_context_builer: TestContextBuilder) -> Result<()> {
     // Create a `ServicesContext`
     let services_ctx = test_context.create_services_context().await;
 
+    let tracker = TaskTracker::new();
+
     // Create a dedicated Council server with a unique subject prefix for each test
-    let council_server = council_server(test_context.config.nats.clone()).await?;
-    let (council_shutdown_request_tx, shutdown_request_rx) = tokio::sync::watch::channel(());
-    let (subscriber_started_tx, mut subscriber_started_rx) = tokio::sync::watch::channel(());
-    tokio::spawn(async move {
-        council_server
-            .run(subscriber_started_tx, shutdown_request_rx)
-            .await
-            .unwrap()
-    });
-    subscriber_started_rx.changed().await?;
+    let council_server = council_server(&services_ctx).await?;
+    let council_server_handle = council_server.shutdown_handle();
+    tracker.spawn(council_server.run());
 
     // Start up a Pinga server as a task exclusively to allow the migrations to run
     info!("starting Pinga server for initial migrations");
     let pinga_server = pinga_server(&services_ctx)?;
     let pinga_server_handle = pinga_server.shutdown_handle();
-    tokio::spawn(pinga_server.run());
+    tracker.spawn(pinga_server.run());
 
     // Start up a Veritech server as a task exclusively to allow the migrations to run
     info!("starting Veritech server for initial migrations");
     let veritech_server = veritech_server_for_uds_cyclone(test_context.config.nats.clone()).await?;
     let veritech_server_handle = veritech_server.shutdown_handle();
-    tokio::spawn(veritech_server.run());
+    tracker.spawn(veritech_server.run());
+
+    tracker.close();
 
     info!("testing database connection");
     services_ctx
@@ -584,7 +591,7 @@ async fn global_setup(test_context_builer: TestContextBuilder) -> Result<()> {
     veritech_server_handle.shutdown().await;
 
     info!("shutting down initial migrations Council server");
-    council_shutdown_request_tx.send(())?;
+    council_server_handle.shutdown();
 
     info!("global test setup complete");
     Ok(())

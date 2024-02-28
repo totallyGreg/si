@@ -1,0 +1,14 @@
+[package]
+name = "council-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.64"
+publish = false
+
+[dependencies]
+remain = { workspace = true }
+serde = { workspace = true }
+si-data-nats = { path = "../../lib/si-data-nats" }
+strum = { workspace = true }
+telemetry = { path = "../../lib/telemetry-rs" }
+ulid = { workspace = true }

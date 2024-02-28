@@ -30,9 +30,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.8.9"
+version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d713b3834d76b85304d4d525563c1276e2e30dc97cc67bfb4585a4a29fc2c89f"
+checksum = "8b79b82693f705137f8fb9b37871d99e4f9a7df12b917eed79c3d3954830a60b"
 dependencies = [
  "cfg-if",
  "getrandom 0.2.12",
@@ -94,9 +94,9 @@ dependencies = [
 
 [[package]]
 name = "anstream"
-version = "0.6.12"
+version = "0.6.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96b09b5178381e0874812a9b157f7fe84982617e48f71f4e3235482775e5b540"
+checksum = "d96bd03f33fe50a863e394ee9718a706f988b9079b20c3784fb726e7678b62fb"
 dependencies = [
  "anstyle",
  "anstyle-parse",
@@ -1039,15 +1039,45 @@ dependencies = [
  "council-server",
  "si-service",
  "si-std",
- "telemetry-application",
+]
+
+[[package]]
+name = "council-client"
+version = "0.1.0"
+dependencies = [
+ "council-core",
+ "futures",
+ "parking_lot",
+ "remain",
+ "serde_json",
+ "si-data-nats",
+ "telemetry",
+ "thiserror",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "council-core"
+version = "0.1.0"
+dependencies = [
+ "remain",
+ "serde",
+ "si-data-nats",
+ "strum",
+ "telemetry",
+ "ulid",
 ]
 
 [[package]]
 name = "council-server"
 version = "0.1.0"
 dependencies = [
+ "council-core",
  "derive_builder",
  "futures",
+ "indexmap 2.2.3",
+ "naxum",
  "remain",
  "serde",
  "serde_json",
@@ -1058,6 +1088,8 @@ dependencies = [
  "telemetry-nats",
  "thiserror",
  "tokio",
+ "tokio-util",
+ "tower",
  "ulid",
 ]
 
@@ -1338,7 +1370,7 @@ dependencies = [
  "chrono",
  "ciborium",
  "convert_case 0.6.0",
- "council-server",
+ "council-client",
  "dal-test",
  "derive_more",
  "diff",
@@ -1378,6 +1410,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "ulid",
  "url",
  "veritech-client",
@@ -1410,6 +1443,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing-subscriber",
  "uuid",
  "veritech-client",
@@ -2254,7 +2288,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
 dependencies = [
- "ahash 0.8.9",
+ "ahash 0.8.10",
  "allocator-api2",
 ]
 
@@ -5303,7 +5337,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d84b0a3c3739e220d94b3239fd69fb1f74bc36e16643423bd99de3b43c21bfbd"
 dependencies = [
- "ahash 0.8.9",
+ "ahash 0.8.10",
  "atoi",
  "bigdecimal",
  "byteorder",
@@ -5731,9 +5765,9 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.10.0"
+version = "3.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a365e8cd18e44762ef95d87f284f4b5cd04107fec2ff3052bd6a3e6069669e67"
+checksum = "85b77fafb263dd9d05cbeac119526425676db3784113aa9295c88498cbf8bff1"
 dependencies = [
  "cfg-if",
  "fastrand 2.0.1",
