@@ -43,6 +43,9 @@ pub mod test;
 //pub static SENT_BROADCAST_COUNTER: AtomicI32 = AtomicI32::new(0);
 //pub static SENT_BROADCAST_ERROR_COUNTER: AtomicI32 = AtomicI32::new(0);
 
+// this is require by Synadia NATs and represents the maximum configured at time of writing (5gb)
+const JETSTREAM_MAX_BYTES: i64 = 5 * 1024 * 1024 * 1024;
+
 #[derive(Copy, Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct ActivityId(Ulid);
 
@@ -368,6 +371,7 @@ impl ActivityStream {
             name: Some(name),
             description: Some(description),
             deliver_policy: jetstream::consumer::DeliverPolicy::New,
+            max_bytes: JETSTREAM_MAX_BYTES,
             ..Default::default()
         };
 
@@ -502,6 +506,7 @@ impl RebaserRequestWorkQueue {
         jetstream::consumer::pull::Config {
             durable_name: Some(Self::CONSUMER_NAME.to_string()),
             description: Some("rebaser requests consumer".to_string()),
+            max_bytes: JETSTREAM_MAX_BYTES,
             ..Default::default()
         }
     }
