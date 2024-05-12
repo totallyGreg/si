@@ -1,0 +1,30 @@
+load("@prelude-si//:macros.bzl", "rust_library")
+
+rust_library(
+    name = "si-firecracker",
+    deps = [
+        "//lib/cyclone-client:cyclone-client",
+        "//lib/cyclone-core:cyclone-core",
+        "//third-party/rust:async-trait",
+        "//third-party/rust:bollard",
+        "//third-party/rust:crossbeam-queue",
+        "//third-party/rust:derive_builder",
+        "//third-party/rust:devicemapper",
+        "//third-party/rust:futures",
+        "//third-party/rust:indexmap",
+        "//third-party/rust:loopdev",
+        "//third-party/rust:nix",
+        "//third-party/rust:rand",
+        "//third-party/rust:remain",
+        "//third-party/rust:serde",
+        "//third-party/rust:tempfile",
+        "//third-party/rust:thiserror",
+        "//third-party/rust:tokio",
+        "//third-party/rust:tracing",
+        "//lib/buck2-resources:buck2-resources",
+    ],
+    srcs = glob(["src/**/*.rs"]),
+    test_unit_deps = [
+        "//lib/veritech-server:veritech-server",
+    ],
+)

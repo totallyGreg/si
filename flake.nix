@@ -35,6 +35,8 @@
       rust-toolchain = rustVersion.override {
         extensions = ["rust-analyzer" "rust-src"];
       };
+      environment.extraOutputsToInstall = [ "dev" ];
+       environment.variables.C_INCLUDE_PATH = "${nixpkgs.expat.dev}/include";
 
       buck2NativeBuildInputs = with pkgs;
         [
@@ -45,6 +47,9 @@
           clang
           gitMinimal
           lld
+          llvmPackages_14.libllvm
+          llvmPackages_14.libclang
+          lvm2
           makeWrapper
           nodejs
           deno
