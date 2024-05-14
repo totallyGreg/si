@@ -106,6 +106,8 @@ indexmap = { version = "2.2.6", features = ["serde", "std"] }
 indicatif = "0.17.8"
 indoc = "2.0.5"
 inquire = "0.7.4"
+ipnetwork = "0.20.0"
+iptables = "0.5.1"
 itertools = "0.12.1"
 jwt-simple = { version = "0.12.9", default-features = false, features = ["pure-rust"] }
 lazy_static = "1.4.0"
@@ -114,6 +116,8 @@ miniz_oxide = { version = "0.7.2", features = ["simd"] }
 moka = { version = "0.12.5", features = ["future"] }
 names = { version = "0.14.0", default-features = false }
 nix = { version = "0.27.1", features = ["mount", "process", "signal"] }
+netlink-packet-route = "0.20.0"
+netns-rs = "0.1.0"
 nkeys = "0.4.0"
 num_cpus = "1.16.0"
 once_cell = "1.19.0"
@@ -140,7 +144,9 @@ regex = "1.10.4"
 remain = "0.2.13"
 reqwest = { version = "0.12.2", default-features = false, features = ["rustls-tls", "json", "multipart"] }
 ring = "=0.17.5" # Upgrading this is possible, but a pain, so we don't want to pick up every new minor version (see: https://github.com/facebook/buck2/commit/91af40b66960d003067c3d241595fb53d1e636c8)
+rtnetlink = "0.14.1"
 rust-s3 = { version = "0.34.0-rc4", default-features = false, features = ["tokio-rustls-tls"] }
+rustix = "0.38.34"
 rustls = { version = "0.22.3" }
 rustls-native-certs = "0.7.0"
 rustls-pemfile = { version = "2.1.1" }
@@ -155,6 +161,7 @@ serde_yaml = "0.9.33" # NOTE(nick): this has been archived upstream
 sodiumoxide = "0.2.7"
 stream-cancel = "0.8.2"
 strum = { version = "0.26.2", features = ["derive"] }
+sysctl = "0.5.5"
 syn = { version = "2.0.55", features = ["full", "extra-traits"] }
 tar = "0.4.40"
 tempfile = "3.10.1"
@@ -175,6 +182,7 @@ tower-http = { version = "0.4.4", features = ["compression-br", "compression-def
 tracing = { version = "0.1.40" }
 tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json", "std"] }
+tun-tap = "0.1.4"
 ulid = { version = "1.1.2", features = ["serde"] }
 url = { version = "2.5.0", features = ["serde"] }
 uuid = { version = "1.8.0", features = ["serde", "v4"] }

@@ -19,15 +19,23 @@ derive_builder = { workspace = true }
 devicemapper = { workspace = true }
 futures = { workspace = true }
 indexmap = { workspace = true }
+ipnetwork = { workspace = true }
+iptables = { workspace = true }
 loopdev = { workspace = true }
 nix = { workspace = true }
+netlink-packet-route = { workspace = true }
+netns-rs = { workspace = true }
 rand = {workspace = true }
 remain = { workspace = true }
+rtnetlink = { workspace = true }
+rustix = { workspace = true }
 serde = { workspace = true }
+sysctl = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+tun-tap = { workspace = true }
 
 [build-dependencies]
 pkg-config = "0.3.30"
