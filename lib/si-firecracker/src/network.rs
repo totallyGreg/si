@@ -1,13 +1,8 @@
+use crate::errors;
 use crate::errors::FirecrackerError;
 use futures::stream::TryStreamExt;
-use netlink_packet_route::LinkMessage;
-use netlink_packet_route::{
-    link::{LinkAttribute, LinkExtentMask},
-    AddressFamily,
-};
 use rtnetlink::new_connection;
 use rtnetlink::Handle;
-use rtnetlink::LinkHandle;
 use rustix::fd::AsRawFd;
 use std::net::Ipv4Addr;
 use std::result;
@@ -58,9 +53,9 @@ impl FirecrackerNetwork {
     async fn create_tun_tap_device(handle: Handle, name: String) -> Result<()> {
         Iface::new(&name, Mode::Tun)?;
         // add address to tap and bring it up
-        if let Some(link) = Self::get_link_by_name(handle.clone(), name).await {
-            Self::add_ip_to_link(handle.clone(), &link, TAP_IP).await?;
-            Self::set_link_to_up(handle.clone(), &link).await?;
+        if let Ok(link_idx) = Self::get_link_idx_by_name(handle.clone(), name.clone()).await {
+            Self::add_ip_to_link(handle.clone(), link_idx, TAP_IP).await?;
+            Self::set_link_to_up(handle.clone(), link_idx).await?;
         }
 
         // Set the sysctl parameters
@@ -80,55 +75,73 @@ impl FirecrackerNetwork {
         jail_ip: Ipv4Addr,
     ) -> Result<()> {
         // create veth peer
-        handle.link().add().veth(host, jail).execute().await?;
+        handle
+            .link()
+            .add()
+            .veth(host.clone(), jail.clone())
+            .execute()
+            .await?;
 
         // get jail dev, add it to the ns and give it an ip
-        if let Some(link) = Self::get_link_by_name(handle.clone(), jail).await {
+        if let Ok(link_idx) = Self::get_link_idx_by_name(handle.clone(), jail).await {
             handle
                 .link()
-                .set(link.header.index)
+                .set(link_idx)
                 .setns_by_fd(ns.file().as_raw_fd())
                 .execute()
                 .await?;
 
             ns.run(|_| async {
-                Self::add_ip_to_link(handle.clone(), &link, jail_ip).await?;
-                Self::set_link_to_up(handle.clone(), &link).await?;
-                // the jail veth should route to the host veth by default
-                Self::set_default_route(handle.clone(), host_ip).await?;
-                Ok(())
-            })?;
+                let result: Result<()> = async {
+                    Self::add_ip_to_link(handle.clone(), link_idx, jail_ip).await?;
+                    Self::set_link_to_up(handle.clone(), link_idx).await?;
+                    // the jail veth should route to the host veth by default
+                    Self::set_default_route(handle.clone(), host_ip).await?;
+                    Ok(())
+                }
+                .await;
+
+                result.map_err(|err| {
+                    return Err::<(), errors::FirecrackerError>(FirecrackerError::NetNsRun(
+                        err.to_string(),
+                    ));
+                });
+            });
         }
 
         // give the host dev an ip
-        if let Some(link) = Self::get_link_by_name(handle.clone(), host).await {
-            Self::add_ip_to_link(handle.clone(), &link, host_ip).await?;
-            Self::set_link_to_up(handle.clone(), &link).await?;
+        if let Ok(link_idx) = Self::get_link_idx_by_name(handle.clone(), host).await {
+            Self::add_ip_to_link(handle.clone(), link_idx, host_ip).await?;
+            Self::set_link_to_up(handle.clone(), link_idx).await?;
         }
         Ok(())
     }
 
-    async fn add_ip_to_link(handle: Handle, link: &LinkHandle, ip: Ipv4Addr) -> Result<()> {
+    async fn add_ip_to_link(handle: Handle, link_idx: u32, ip: Ipv4Addr) -> Result<()> {
         handle
             .address()
-            .add(link.header.index, ip, ip.prefix())
+            .add(link_idx, std::net::IpAddr::V4(ip), 30)
             .execute()
             .await?;
         Ok(())
     }
 
-    async fn get_link_by_name(handle: Handle, name: String) -> Option<LinkMessage> {
-        handle
+    async fn get_link_idx_by_name(handle: Handle, name: String) -> Result<u32> {
+        match handle
             .link()
             .get()
-            .match_name(name)
+            .match_name(name.clone())
             .execute()
             .try_next()
             .await?
+        {
+            Some(link) => Ok(link.header.index),
+            None => Err(FirecrackerError::LinkNotFound(name)),
+        }
     }
 
-    async fn set_link_to_up(handle: Handle, link: &LinkHandle) -> Result<()> {
-        link.set(link.header.index).up().execute().await?;
+    async fn set_link_to_up(handle: Handle, link_idx: u32) -> Result<()> {
+        handle.link().set(link_idx).up().execute().await?;
         Ok(())
     }
 
@@ -144,7 +157,7 @@ impl FirecrackerNetwork {
             .route()
             .add()
             .v4()
-            .destination_prefix(ip, ip.prefix())
+            .destination_prefix(ip, 30)
             .execute()
             .await?;
         Ok(())

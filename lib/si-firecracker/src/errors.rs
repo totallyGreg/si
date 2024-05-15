@@ -8,8 +8,12 @@ pub enum FirecrackerError {
     IFace(#[from] std::io::Error),
     #[error("iptables error: {0}")]
     IpTables(#[from] Box<dyn std::error::Error>),
+    #[error("link not found by name: {0}")]
+    LinkNotFound(String),
     #[error("netns error: {0}")]
     NetNs(#[from] netns_rs::Error),
+    #[error("failed to run in nets: {0}")]
+    NetNsRun(String),
     #[error("rtnetlink error: {0}")]
     RTNetLink(#[from] rtnetlink::Error),
     #[error("sysctl error: {0}")]

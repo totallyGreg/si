@@ -7,7 +7,6 @@ use std::{result, str::FromStr};
 type Result<T> = result::Result<T, FirecrackerError>;
 
 const JAIL_HOME: &str = "/srv/jailer/firecracker/";
-const OVERLAY_SZ: u64 = 5368709120;
 
 pub struct FirecrackerJail {
     id: u32,
