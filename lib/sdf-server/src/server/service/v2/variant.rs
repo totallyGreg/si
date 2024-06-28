@@ -9,28 +9,19 @@ use dal::{schema::variant, ChangeSetId, Schema, SchemaVariant, SchemaVariantId, 
 use si_frontend_types as frontend_types;
 use thiserror::Error;
 
-use crate::server::{
-    extract::{AccessBuilder, HandlerContext, PosthogClient},
-    state::AppState,
-    tracking::track,
+use crate::{
+    server::{
+        extract::{AccessBuilder, HandlerContext, PosthogClient},
+        state::AppState,
+        tracking::track,
+    },
+    service::ApiError,
 };
-pub mod func;
-pub mod variant;
 
-use super::ApiError;
-
-pub fn routes() -> Router<AppState> {
-    const PREFIX: &str = "/workspaces/:workspace_id/change-sets/:change_set_id";
-
+pub fn v2_routes() -> Router<AppState> {
     Router::new()
-        .route(
-            &format!("{PREFIX}/schema-variants"),
-            get(list_schema_variants),
-        )
-        .route(
-            &format!("{PREFIX}/schema-variants/:schema_variant_id"),
-            get(get_variant),
-        )
+        .route("/", get(list_schema_variants))
+        .route("/:schema_variant_id", get(get_variant))
 }
 
 pub async fn list_schema_variants(
@@ -46,22 +37,13 @@ pub async fn list_schema_variants(
 
     let mut schema_variants = Vec::new();
 
-    // NOTE(victor): This is not optimized, since it loops twice through the defaults, but it'll get the job done for now
-    // determining the default should change soon, and then we can get rid of SchemaVariant::get_default_for_schema over here
     for schema_id in Schema::list_ids(&ctx).await? {
-        let default_schema_variant = SchemaVariant::get_default_for_schema(&ctx, schema_id).await?;
-        if !default_schema_variant.ui_hidden() {
-            schema_variants.push(
-                default_schema_variant
-                    .into_frontend_type(&ctx, schema_id)
-                    .await?,
-            )
-        }
-
-        if let Some(unlocked) = SchemaVariant::get_unlocked_for_schema(&ctx, schema_id).await? {
-            if !unlocked.ui_hidden() {
-                schema_variants.push(unlocked.into_frontend_type(&ctx, schema_id).await?)
-            }
+        // NOTE(fnichol): Yes there is `SchemaVariant::list_default_ids()`, but shortly we'll be
+        // asking for more than only the defaults which reduces us back to looping through schemas
+        // to filter appropriate schema variants.
+        let schema_variant = SchemaVariant::get_default_for_schema(&ctx, schema_id).await?;
+        if !schema_variant.ui_hidden() {
+            schema_variants.push(schema_variant.into_frontend_type(&ctx, schema_id).await?);
         }
     }
 
@@ -115,7 +97,6 @@ pub async fn get_variant(
 
     Ok(Json(schema_variant))
 }
-
 #[remain::sorted]
 #[derive(Debug, Error)]
 pub enum SchemaVariantsAPIError {

@@ -1285,8 +1285,8 @@ impl SchemaVariant {
         Ok(attribute_prototype_id)
     }
 
-    /// This _private_ method upserts [inputs](LeafInput) to an _existing_ leaf function.
-    async fn upsert_leaf_function_inputs(
+    /// This method upserts [inputs](LeafInput) to an _existing_ leaf function.
+    pub async fn upsert_leaf_function_inputs(
         ctx: &DalContext,
         inputs: &[LeafInput],
         attribute_prototype_id: AttributePrototypeId,
@@ -1824,7 +1824,7 @@ impl SchemaVariant {
     pub async fn list_for_action_func(
         ctx: &DalContext,
         func_id: FuncId,
-    ) -> SchemaVariantResult<Vec<SchemaVariantId>> {
+    ) -> SchemaVariantResult<Vec<(SchemaVariantId, ActionPrototypeId)>> {
         let workspace_snapshot = ctx.workspace_snapshot()?;
 
         // First, collect all the action prototypes using the func.
@@ -1854,7 +1854,8 @@ impl SchemaVariant {
                 if let Some(ContentAddressDiscriminants::SchemaVariant) =
                     node_weight.content_address_discriminants()
                 {
-                    schema_variant_ids.push(node_weight.id().into());
+                    schema_variant_ids
+                        .push((node_weight.id().into(), action_prototype_raw_id.into()));
                 }
             }
         }
