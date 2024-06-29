@@ -7,7 +7,7 @@
         <div
           class="font-bold text-xl text-center overflow-hidden text-ellipsis flex-grow break-words"
         >
-          Test {{ funcStore.selectedFuncDetails?.kind + " " || "" }}Function
+          Test {{ selectedFuncCode?.kind + " " || "" }}Function
           <span class="italic">"{{ editingFunc?.name }}"</span>
         </div>
         <StatusIndicatorIcon
@@ -244,12 +244,12 @@ const additionalOutputInfoModalRef = ref();
 const funcTestSelectorRef = ref<InstanceType<typeof FuncTestSelector>>();
 
 const selectedAsset = computed(() => assetStore.selectedSchemaVariant);
-const editingFuncDetails = computed(() => funcStore.selectedFuncDetails);
+const editingFuncDetails = computed(() => selectedFuncCode);
 const editingFunc = ref(_.cloneDeep(editingFuncDetails.value));
 
 const isAttributeFunc = computed(() => {
   if (!funcStore.selectedFuncId) return false;
-  return funcStore.selectedFuncDetails?.associations?.type === "attribute";
+  return selectedFuncCode?.associations?.type === "attribute";
 });
 const enableTestTabGroup = computed((): boolean => {
   if (isAttributeFunc.value) {
@@ -279,7 +279,7 @@ const runningTest = ref(false);
 const dryRunConfig = computed(() => {
   // TODO(Wendy) - which function variants allow for a choice of dry run? which are always dry and which are always wet?
   // Note(Paulo): We only support dry run when testing functions
-  if (funcStore.selectedFuncDetails?.kind === FuncKind.Attribute) {
+  if (selectedFuncCode?.kind === FuncKind.Attribute) {
     return "dry";
   } else {
     // return "wet";
@@ -363,7 +363,7 @@ const prepareTest = async () => {
 
   resetTestData();
 
-  const selectedFunc = funcStore.selectedFuncDetails;
+  const selectedFunc = selectedFuncCode;
 
   if (selectedFunc?.associations?.type === "attribute") {
     if (!funcTestSelectorRef.value.selectedPrototypeId) {
@@ -451,7 +451,7 @@ const prepareTest = async () => {
 
 const startTest = async () => {
   if (
-    !funcStore.selectedFuncDetails ||
+    !selectedFuncCode ||
     !funcTestSelectorRef.value?.selectedComponentId ||
     !readyToTest.value
   )
@@ -468,9 +468,9 @@ const startTest = async () => {
   const args = testInputProperties.value;
 
   const response = await funcStore.TEST_EXECUTE({
-    id: funcStore.selectedFuncDetails.id,
+    id: selectedFuncCode.id,
     args,
-    code: funcStore.selectedFuncDetails.code,
+    code: selectedFuncCode.code,
     componentId: funcTestSelectorRef.value?.selectedComponentId,
   });
 

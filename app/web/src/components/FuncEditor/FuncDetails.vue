@@ -65,8 +65,8 @@
           :requestStatus="execFuncReqStatus"
           :disabled="
             !(
-              funcStore.selectedFuncDetails &&
-              funcStore.selectedFuncDetails?.associations?.type !==
+              selectedFuncCode &&
+              selectedFuncCode?.associations?.type !==
                 'authentication'
             )
           "
@@ -317,7 +317,7 @@ const loadFuncDetailsReqStatus = funcStore.getRequestStatus(
 const updateFuncReqStatus = funcStore.getRequestStatus("UPDATE_FUNC", funcId);
 const { selectedFuncId, selectedFuncSummary } = storeToRefs(funcStore);
 
-const storeFuncDetails = computed(() => funcStore.selectedFuncDetails);
+const storeFuncDetails = computed(() => selectedFuncCode);
 const editingFunc = ref(_.cloneDeep(storeFuncDetails.value));
 
 function resetEditingFunc() {
@@ -425,10 +425,10 @@ const hasAssociations = computed(() => {
 const enableTestPanel = computed((): boolean => {
   return (
     props.allowTestPanel &&
-    (funcStore.selectedFuncDetails?.associations?.type === "action" ||
-      funcStore.selectedFuncDetails?.associations?.type === "attribute" ||
-      funcStore.selectedFuncDetails?.associations?.type === "codeGeneration" ||
-      funcStore.selectedFuncDetails?.associations?.type === "qualification")
+    (selectedFuncCode?.associations?.type === "action" ||
+      selectedFuncCode?.associations?.type === "attribute" ||
+      selectedFuncCode?.associations?.type === "codeGeneration" ||
+      selectedFuncCode?.associations?.type === "qualification")
   );
 });
 </script>

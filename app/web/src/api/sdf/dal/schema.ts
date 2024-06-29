@@ -1,5 +1,6 @@
 import { StandardModel } from "@/api/sdf/dal/standard_model";
 import { FuncId } from "@/api/sdf/dal/func";
+import { Prop } from "@/api/sdf/dal/prop";
 
 export enum SchemaKind {
   Concept = "concept",
@@ -30,6 +31,7 @@ export type OutputSocketId = string;
 export interface OutputSocket {
   id: OutputSocketId;
   name: string;
+  eligible_to_recieve_data: boolean;
 }
 
 export type InputSocketId = string;
@@ -37,6 +39,7 @@ export type InputSocketId = string;
 export interface InputSocket {
   id: InputSocketId;
   name: string;
+  eligible_to_send_data: boolean;
 }
 
 export interface SchemaVariant {
@@ -61,4 +64,5 @@ export interface SchemaVariant {
 
   inputSockets: InputSocket[];
   outputSockets: OutputSocket[];
+  props: Prop[];
 }

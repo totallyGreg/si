@@ -1,5 +1,5 @@
 import { PropKind } from "@/api/sdf/dal/prop";
-import { ActionKind } from "@/store/actions.store";
+import { ActionKind } from "@/api/sdf/dal/action";
 
 export interface ActionAssociations {
   type: "action";

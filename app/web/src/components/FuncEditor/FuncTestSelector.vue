@@ -105,7 +105,7 @@ const prototypeAttributeOptions = computed(
     // Despite the fact that we can compile prototype options for _all_ components, we should wait until
     // the user selects a _single_ component.
     if (!funcStore.selectedFuncId || !selectedComponentId.value) return [];
-    const selectedFunc = funcStore.selectedFuncDetails;
+    const selectedFunc = selectedFuncCode;
 
     if (selectedFunc?.associations?.type === "attribute") {
       const attributeAssociations = selectedFunc.associations;

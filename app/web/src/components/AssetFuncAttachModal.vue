@@ -323,7 +323,6 @@ const open = async (
   selectedExistingFuncId.value = funcId;
   attrToValidate.value = undefined;
 
-  await funcStore.FETCH_INPUT_SOURCE_LIST(schemaVariantId.value);
   attributeOutputLocationOptions.value = schemaVariantId.value
     ? funcStore
         .outputLocationOptionsForSchemaVariant(schemaVariantId.value)
