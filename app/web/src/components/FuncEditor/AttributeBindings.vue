@@ -122,7 +122,7 @@ const funcId = computed(() => funcStore.selectedFuncId);
 
 const associations = computed(
   () =>
-    funcStore.funcDetailsById[funcId.value as string]
+    funcStore.funcCodeById[funcId.value as string]
       ?.associations as AttributeAssociations,
 );
 

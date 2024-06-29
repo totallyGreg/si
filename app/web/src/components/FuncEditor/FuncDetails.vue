@@ -122,21 +122,21 @@
             >
               <Stack class="p-xs" spacing="none">
                 <VormInput
-                  v-model="editingFunc.name"
+                  v-model="selectedFuncSummary.name"
                   label="Name"
                   required
                   compact
                   @blur="updateFunc"
                 />
                 <VormInput
-                  v-model="editingFunc.displayName"
+                  v-model="selectedFuncSummary.displayName"
                   label="Display Name"
                   required
                   compact
                   @blur="updateFunc"
                 />
                 <VormInput
-                  v-model="editingFunc.description"
+                  v-model="selectedFuncSummary.description"
                   type="textarea"
                   compact
                   label="Description"
@@ -182,7 +182,7 @@
             />
 
             <TreeNode
-              v-if="editingFunc.kind === FuncKind.Attribute"
+              v-if="selectedFuncSummary?.kind === FuncKind.Attribute"
               label="Arguments"
               defaultOpen
               enableGroupToggle
@@ -197,12 +197,15 @@
                   editingFunc.associations &&
                   editingFunc.associations.type === 'attribute'
                 "
-                :funcId="editingFunc.id"
+                :funcId="editingFunc.funcId"
               />
             </TreeNode>
 
             <TreeNode
-              v-if="editingFunc.kind === FuncKind.Attribute && schemaVariantId"
+              v-if="
+                selectedFuncSummary?.kind === FuncKind.Attribute &&
+                schemaVariantId
+              "
               label="Bindings"
               defaultOpen
               enableGroupToggle
@@ -227,7 +230,7 @@
         </TabGroupItem>
 
         <TabGroupItem
-          v-if="editingFunc.kind === FuncKind.Attribute"
+          v-if="selectedFuncSummary?.kind === FuncKind.Attribute"
           label="Bindings"
           slug="bindings"
         >
@@ -314,13 +317,13 @@ const loadFuncDetailsReqStatus = funcStore.getRequestStatus(
   funcId,
 );
 const updateFuncReqStatus = funcStore.getRequestStatus("UPDATE_FUNC", funcId);
-const { selectedFuncId, selectedFuncSummary } = storeToRefs(funcStore);
+const { selectedFuncId, selectedFuncSummary, selectedFuncCode } =
+  storeToRefs(funcStore);
 
-const storeFuncDetails = computed(() => funcStore.selectedFuncCode);
-const editingFunc = ref(_.cloneDeep(storeFuncDetails.value));
+const editingFunc = ref(_.cloneDeep(selectedFuncCode.value));
 
 function resetEditingFunc() {
-  editingFunc.value = _.cloneDeep(storeFuncDetails.value);
+  editingFunc.value = _.cloneDeep(selectedFuncCode.value);
 }
 
 // when the func details finish loading, we copy into our local draft
@@ -344,7 +347,7 @@ watch(
 const updateFunc = () => {
   if (
     !editingFunc.value ||
-    _.isEqual(editingFunc.value, storeFuncDetails.value)
+    _.isEqual(editingFunc.value, selectedFuncCode.value)
   )
     return;
   funcStore.UPDATE_FUNC(editingFunc.value);

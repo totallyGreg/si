@@ -246,8 +246,6 @@ const additionalOutputInfoModalRef = ref();
 const funcTestSelectorRef = ref<InstanceType<typeof FuncTestSelector>>();
 
 const selectedAsset = computed(() => assetStore.selectedSchemaVariant);
-const editingFuncDetails = computed(() => funcStore.selectedFuncCode);
-const editingFunc = ref(_.cloneDeep(editingFuncDetails.value));
 
 const isAttributeFunc = computed(() => {
   if (!funcStore.selectedFuncId) return false;
