@@ -141,7 +141,7 @@ import {
 } from "@si/vue-lib/design-system";
 import clsx from "clsx";
 import * as _ from "lodash-es";
-import { ActionKind } from "@/store/actions.store";
+import { ActionKind } from "@/api/sdf/dal/action";
 import SiCheckBox from "@/components/SiCheckBox.vue";
 import {
   CUSTOMIZABLE_FUNC_TYPES,
@@ -201,7 +201,7 @@ const selectedExistingFuncId = ref<FuncId | undefined>();
 const selectedFuncCode = ref<string>("");
 const loadFuncDetailsReq = computed(() =>
   selectedExistingFuncId.value
-    ? funcStore.getRequestStatus("FETCH_FUNC", selectedExistingFuncId.value)
+    ? funcStore.getRequestStatus("FETCH_CODE", selectedExistingFuncId.value)
     : undefined,
 );
 
@@ -210,12 +210,12 @@ watch(
   async (funcId) => {
     if (funcId) {
       if (
-        !funcStore.funcDetailsById[funcId] ||
+        !funcStore.funcCodeById[funcId] ||
         !funcStore.funcArgumentsByFuncId[funcId]
       ) {
         await funcStore.FETCH_FUNC_ARGUMENT_LIST(funcId);
       } else {
-        selectedFuncCode.value = funcStore.funcDetailsById[funcId]?.code ?? "";
+        selectedFuncCode.value = funcStore.funcCodeById[funcId]?.code ?? "";
       }
 
       editableBindings.value = [];
@@ -236,7 +236,7 @@ const existingFuncOptions = computed(() =>
     .filter((func) => func.kind === funcKind.value)
     .map((func) => ({
       label: func.name,
-      value: func.id,
+      value: func.funcId,
     })),
 );
 
@@ -422,7 +422,7 @@ const reloadAssetAndRoute = async (assetId: string) => {
 };
 
 const func = computed(
-  () => funcStore.funcDetailsById[selectedExistingFuncId.value ?? -1],
+  () => funcStore.funcCodeById[selectedExistingFuncId.value ?? -1],
 );
 
 interface EditingBinding {
@@ -456,7 +456,7 @@ const noneSource = { label: "select source", value: nilId() };
 
 const attachExistingFunc = async () => {
   if (schemaVariantId.value && selectedExistingFuncId.value) {
-    const func = funcStore.funcDetailsById[selectedExistingFuncId.value];
+    const func = funcStore.funcCodeById[selectedExistingFuncId.value];
     if (func) {
       let updatedAssociations: FuncAssociations | undefined;
       const associations = func?.associations;

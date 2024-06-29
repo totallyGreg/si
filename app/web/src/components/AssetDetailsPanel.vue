@@ -238,8 +238,7 @@ const updateAsset = async () => {
     editingAsset.value &&
     !_.isEqual(editingAsset.value, assetStore.selectedSchemaVariant)
   ) {
-    const code =
-      funcStore.funcDetailsById[editingAsset.value.assetFuncId]?.code;
+    const code = funcStore.funcCodeById[editingAsset.value.assetFuncId]?.code;
     if (code) await assetStore.SAVE_SCHEMA_VARIANT(editingAsset.value);
     else
       throw new Error(

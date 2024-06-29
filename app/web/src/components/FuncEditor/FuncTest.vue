@@ -7,8 +7,10 @@
         <div
           class="font-bold text-xl text-center overflow-hidden text-ellipsis flex-grow break-words"
         >
-          Test {{ selectedFuncCode?.kind + " " || "" }}Function
-          <span class="italic">"{{ editingFunc?.name }}"</span>
+          Test {{ funcStore.selectedFuncSummary?.kind + " " || "" }}Function
+          <span class="italic"
+            >"{{ funcStore.selectedFuncSummary?.name }}"</span
+          >
         </div>
         <StatusIndicatorIcon
           v-if="runningTest"
@@ -244,12 +246,12 @@ const additionalOutputInfoModalRef = ref();
 const funcTestSelectorRef = ref<InstanceType<typeof FuncTestSelector>>();
 
 const selectedAsset = computed(() => assetStore.selectedSchemaVariant);
-const editingFuncDetails = computed(() => selectedFuncCode);
+const editingFuncDetails = computed(() => funcStore.selectedFuncCode);
 const editingFunc = ref(_.cloneDeep(editingFuncDetails.value));
 
 const isAttributeFunc = computed(() => {
   if (!funcStore.selectedFuncId) return false;
-  return selectedFuncCode?.associations?.type === "attribute";
+  return funcStore.selectedFuncCode?.associations?.type === "attribute";
 });
 const enableTestTabGroup = computed((): boolean => {
   if (isAttributeFunc.value) {
@@ -279,7 +281,7 @@ const runningTest = ref(false);
 const dryRunConfig = computed(() => {
   // TODO(Wendy) - which function variants allow for a choice of dry run? which are always dry and which are always wet?
   // Note(Paulo): We only support dry run when testing functions
-  if (selectedFuncCode?.kind === FuncKind.Attribute) {
+  if (funcStore.selectedFuncSummary?.kind === FuncKind.Attribute) {
     return "dry";
   } else {
     // return "wet";
@@ -363,9 +365,7 @@ const prepareTest = async () => {
 
   resetTestData();
 
-  const selectedFunc = selectedFuncCode;
-
-  if (selectedFunc?.associations?.type === "attribute") {
+  if (funcStore.selectedFuncCode?.associations?.type === "attribute") {
     if (!funcTestSelectorRef.value.selectedPrototypeId) {
       throw new Error(
         "cannot prepare test for attribute func without a selected prototype",
@@ -373,7 +373,7 @@ const prepareTest = async () => {
     }
 
     const prototype = _.find(
-      selectedFunc.associations.prototypes,
+      funcStore.selectedFuncCode.associations.prototypes,
       (p) => p.id === funcTestSelectorRef.value?.selectedPrototypeId,
     );
     if (!prototype) {
@@ -399,8 +399,8 @@ const prepareTest = async () => {
     testInputCode.value = JSON.stringify(properties, null, 2);
     testInputProperties.value = properties;
   } else if (
-    selectedFunc?.associations?.type === "codeGeneration" ||
-    selectedFunc?.associations?.type === "qualification"
+    funcStore.selectedFuncCode?.associations?.type === "codeGeneration" ||
+    funcStore.selectedFuncCode?.associations?.type === "qualification"
   ) {
     const res = await componentsStore.FETCH_COMPONENT_JSON(
       funcTestSelectorRef.value.selectedComponentId,
@@ -432,7 +432,7 @@ const prepareTest = async () => {
     };
 
     const properties: Record<string, unknown> = {};
-    for (const input of selectedFunc.associations.inputs) {
+    for (const input of funcStore.selectedFuncCode.associations.inputs) {
       if (!props) break;
 
       const key = toSnakeCase(`${input}`);
@@ -451,7 +451,7 @@ const prepareTest = async () => {
 
 const startTest = async () => {
   if (
-    !selectedFuncCode ||
+    !funcStore.selectedFuncCode ||
     !funcTestSelectorRef.value?.selectedComponentId ||
     !readyToTest.value
   )
@@ -468,9 +468,9 @@ const startTest = async () => {
   const args = testInputProperties.value;
 
   const response = await funcStore.TEST_EXECUTE({
-    id: selectedFuncCode.id,
+    id: funcStore.selectedFuncCode.funcId,
     args,
-    code: selectedFuncCode.code,
+    code: funcStore.selectedFuncCode.code,
     componentId: funcTestSelectorRef.value?.selectedComponentId,
   });
 

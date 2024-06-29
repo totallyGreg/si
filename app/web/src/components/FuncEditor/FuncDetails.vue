@@ -66,8 +66,7 @@
           :disabled="
             !(
               selectedFuncCode &&
-              selectedFuncCode?.associations?.type !==
-                'authentication'
+              selectedFuncCode?.associations?.type !== 'authentication'
             )
           "
           @click="execFunc"
@@ -311,13 +310,13 @@ const detachRef = ref<DetachType>();
 const funcId = computed(() => props.funcId);
 
 const loadFuncDetailsReqStatus = funcStore.getRequestStatus(
-  "FETCH_FUNC",
+  "FETCH_CODE",
   funcId,
 );
 const updateFuncReqStatus = funcStore.getRequestStatus("UPDATE_FUNC", funcId);
 const { selectedFuncId, selectedFuncSummary } = storeToRefs(funcStore);
 
-const storeFuncDetails = computed(() => selectedFuncCode);
+const storeFuncDetails = computed(() => funcStore.selectedFuncCode);
 const editingFunc = ref(_.cloneDeep(storeFuncDetails.value));
 
 function resetEditingFunc() {
@@ -425,10 +424,10 @@ const hasAssociations = computed(() => {
 const enableTestPanel = computed((): boolean => {
   return (
     props.allowTestPanel &&
-    (selectedFuncCode?.associations?.type === "action" ||
-      selectedFuncCode?.associations?.type === "attribute" ||
-      selectedFuncCode?.associations?.type === "codeGeneration" ||
-      selectedFuncCode?.associations?.type === "qualification")
+    (funcStore.selectedFuncCode?.associations?.type === "action" ||
+      funcStore.selectedFuncCode?.associations?.type === "attribute" ||
+      funcStore.selectedFuncCode?.associations?.type === "codeGeneration" ||
+      funcStore.selectedFuncCode?.associations?.type === "qualification")
   );
 });
 </script>
