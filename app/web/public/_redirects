@@ -1,4 +1,7 @@
+http://test.systeminit.com/api/* https://api.tools.systeminit.com/api/:splat 200!
 https://test.systeminit.com/api/* https://api.tools.systeminit.com/api/:splat 200!
+http://tools.systeminit.com/api/* https://api.tools.systeminit.com/api/:splat 200!
 https://tools.systeminit.com/api/* https://api.tools.systeminit.com/api/:splat 200!
+http://app.systeminit.com/api/* https://api.app.systeminit.com/api/:splat 200!
 https://app.systeminit.com/api/* https://api.app.systeminit.com/api/:splat 200!
 /* /index.html 200
