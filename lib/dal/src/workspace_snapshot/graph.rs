@@ -1338,12 +1338,9 @@ impl WorkspaceSnapshotGraphV1 {
                 self.get_node_weight(container_ordering_index)?
             {
                 for ordered_id in ordering_weight.order() {
-                    ordered_child_indexes.push(*self.node_index_by_id.get(ordered_id).ok_or(
-                        WorkspaceSnapshotGraphError::OrderingNodeHasNonexistentNodeInOrder(
-                            ordering_weight.id(),
-                            *ordered_id,
-                        ),
-                    )?);
+                    if let Some(child_index) = self.node_index_by_id.get(ordered_id).copied() {
+                        ordered_child_indexes.push(child_index);
+                    }
                 }
             }
         } else {

@@ -101,6 +101,41 @@ impl<'a, 'b> DetectConflictsAndUpdates<'a, 'b> {
     ) -> Result<petgraph::visit::Control<()>, petgraph::visit::DfsEvent<NodeIndex>> {
         match event {
             DfsEvent::Discover(onto_node_index, _) => {
+                if !self
+                    .onto_node_is_different_from_to_rebase(onto_node_index)
+                    .map_err(|err| {
+                        error!(
+                            err=?err,
+                            "Error detecting conflicts and updates for onto {:?}",
+                            onto_node_index,
+                        );
+                        event
+                    })?
+                {
+                    return Ok(petgraph::visit::Control::Prune);
+                }
+
+                Ok(petgraph::visit::Control::Continue)
+            }
+            DfsEvent::Finish(onto_node_index, _time) => {
+                // Even though we're pruning in `DfsEvent::Discover`, we'll still get a `Finish`
+                // for the node where we returned a `petgraph::visit::Control::Prune`. Since we
+                // already know that there won't be any conflicts/updates with a nodes that have
+                // identical merkle tree hashes, we can `Continue`
+                if !self
+                    .onto_node_is_different_from_to_rebase(onto_node_index)
+                    .map_err(|err| {
+                        error!(
+                            err=?err,
+                            "Error detecting conflicts and updates for onto {:?}",
+                            onto_node_index,
+                        );
+                        event
+                    })?
+                {
+                    return Ok(petgraph::visit::Control::Continue);
+                }
+
                 let (petgraph_control, node_conflicts, node_updates) = self
                     .detect_conflicts_and_updates_for_node_index(onto_node_index)
                     .map_err(|err| {
@@ -120,6 +155,52 @@ impl<'a, 'b> DetectConflictsAndUpdates<'a, 'b> {
             }
             _ => Ok(petgraph::visit::Control::Continue),
         }
+    }
+
+    fn onto_node_is_different_from_to_rebase(
+        &self,
+        onto_node_index: NodeIndex,
+    ) -> WorkspaceSnapshotGraphResult<bool> {
+        let onto_node_weight = self.onto_graph.get_node_weight(onto_node_index)?;
+        let mut to_rebase_node_indexes = HashSet::new();
+        if onto_node_index == self.onto_graph.root_index {
+            // There can only be one (valid/current) `ContentAddress::Root` at any
+            // given moment, and the `lineage_id` isn't really relevant as it's not
+            // globally stable (even though it is locally stable). This matters as we
+            // may be dealing with a `WorkspaceSnapshotGraph` that is coming to us
+            // externally from a module that we're attempting to import. The external
+            // `WorkspaceSnapshotGraph` will be `self`, and the "local" one will be
+            // `onto`.
+            to_rebase_node_indexes.insert(self.to_rebase_graph.root());
+        } else {
+            // Only retain node indexes... or indices... if they are part of the current
+            // graph. There may still be garbage from previous updates to the graph
+            // laying around.
+            let mut potential_to_rebase_node_indexes = self
+                .to_rebase_graph
+                .get_node_index_by_lineage(onto_node_weight.lineage_id());
+            potential_to_rebase_node_indexes
+                .retain(|node_index| self.to_rebase_graph.has_path_to_root(*node_index));
+            to_rebase_node_indexes.extend(potential_to_rebase_node_indexes);
+        }
+
+        // If everything with the same `lineage_id` is identical, then we can prune the
+        // graph traversal, and avoid unnecessary lookups/comparisons.
+        let mut any_content_with_lineage_is_different = false;
+
+        for to_rebase_node_index in to_rebase_node_indexes {
+            let to_rebase_node_weight =
+                self.to_rebase_graph.get_node_weight(to_rebase_node_index)?;
+            if onto_node_weight.merkle_tree_hash() == to_rebase_node_weight.merkle_tree_hash() {
+                // If the merkle tree hashes are the same, then the entire sub-graph is
+                // identical, and we don't need to check any further.
+                continue;
+            }
+
+            any_content_with_lineage_is_different = true
+        }
+
+        Ok(any_content_with_lineage_is_different)
     }
 
     fn detect_conflicts_and_updates_for_node_index(
@@ -153,10 +234,6 @@ impl<'a, 'b> DetectConflictsAndUpdates<'a, 'b> {
             to_rebase_node_indexes.extend(potential_to_rebase_node_indexes);
         }
 
-        // If everything with the same `lineage_id` is identical, then we can prune the
-        // graph traversal, and avoid unnecessary lookups/comparisons.
-        let mut any_content_with_lineage_has_changed = false;
-
         for to_rebase_node_index in to_rebase_node_indexes {
             let to_rebase_node_weight =
                 self.to_rebase_graph.get_node_weight(to_rebase_node_index)?;
@@ -170,7 +247,6 @@ impl<'a, 'b> DetectConflictsAndUpdates<'a, 'b> {
                 );
                 continue;
             }
-            any_content_with_lineage_has_changed = true;
 
             // Check if there's a difference in the node itself (and whether it is a
             // conflict if there is a difference).
@@ -290,16 +366,12 @@ impl<'a, 'b> DetectConflictsAndUpdates<'a, 'b> {
             conflicts.extend(container_conflicts);
         }
 
-        if any_content_with_lineage_has_changed {
-            // There was at least one thing with a merkle tree hash difference, so we need
-            // to examine further down the tree to see where the difference(s) are, and
-            // where there are conflicts, if there are any.
-            Ok(ConflictsAndUpdatesControl::Continue(conflicts, updates))
-        } else {
-            // Everything to be rebased is identical, so there's no need to examine the
-            // rest of the tree looking for differences & conflicts that won't be there.
-            Ok(ConflictsAndUpdatesControl::Prune(conflicts, updates))
-        }
+        // This function is run in `DfsEvent::Finish`, so regardless of whether there are any
+        // updates/conflicts, we need to return `Continue`. We shouldn't ever get here if there
+        // aren't any differences at all, as we prune the graph during `DfsEvent::Discover`, but
+        // the differences might not result in any changes/conflicts in the direction we're doing
+        // the comparison.
+        Ok(ConflictsAndUpdatesControl::Continue(conflicts, updates))
     }
 
     fn find_container_membership_conflicts_and_updates(
