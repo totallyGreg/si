@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-
+use axum::extract::Query;
 use axum::Json;
 use dal::{
     workspace_snapshot::conflict::Conflict, AttributeValue, AttributeValueId, ChangeSet,
     ComponentId, Visibility, WorkspaceSnapshot, WorkspaceSnapshotError,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use ulid::Ulid;
 
 use crate::server::extract::{AccessBuilder, HandlerContext};
@@ -26,10 +26,10 @@ pub type ConflictsForComponentResponse =
 pub async fn conflicts_for_component(
     HandlerContext(builder): HandlerContext,
     AccessBuilder(request_ctx): AccessBuilder,
-    Json(ConflictsForComponentRequest {
+    Query(ConflictsForComponentRequest {
         component_id,
         visibility,
-    }): Json<ConflictsForComponentRequest>,
+    }): Query<ConflictsForComponentRequest>,
 ) -> ComponentResult<Json<ConflictsForComponentResponse>> {
     let ctx = builder.build(request_ctx.build(visibility)).await?;
 
