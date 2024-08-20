@@ -1,23 +1,63 @@
-mod into_response;
+use std::fmt;
 
 use async_nats::StatusCode;
 
+mod into_response;
+
 pub use self::into_response::IntoResponse;
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct Response {
-    status: StatusCode,
+    head: Parts,
+    body: (),
+}
+
+#[derive(Default)]
+#[non_exhaustive]
+pub struct Parts {
+    pub status: StatusCode,
 }
 
 impl Response {
-    pub fn server_error() -> Self {
+    #[inline]
+    pub fn new(body: ()) -> Self {
         Self {
-            status: StatusCode::from_u16(500).expect("status code is in valid range"),
+            head: Parts::new(),
+            body,
         }
     }
 
-    pub fn status(self) -> StatusCode {
-        self.status
+    pub fn server_error() -> Self {
+        Self {
+            head: Parts {
+                status: StatusCode::from_u16(500).expect("status code is in valid range"),
+            },
+            body: (),
+        }
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.head.status
+    }
+
+    pub fn status_mut(&mut self) -> &mut StatusCode {
+        &mut self.head.status
+    }
+}
+
+impl Parts {
+    fn new() -> Self {
+        Self {
+            status: StatusCode::default(),
+        }
+    }
+}
+
+impl fmt::Debug for Parts {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Parts")
+            .field("status", &self.status)
+            .finish()
     }
 }
 

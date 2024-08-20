@@ -12,7 +12,9 @@ pub trait IntoResponse {
 
 impl IntoResponse for StatusCode {
     fn into_response(self) -> Response {
-        Response { status: self }
+        let mut response = Response::new(());
+        *response.status_mut() = self;
+        response
     }
 }
 
@@ -128,7 +130,9 @@ where
     R: IntoResponse,
 {
     fn into_response(self) -> Response {
-        Response { status: self.0 }
+        let mut response = Response::new(());
+        *response.status_mut() = self.0;
+        response
     }
 }
 
