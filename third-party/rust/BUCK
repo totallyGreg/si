@@ -15943,6 +15943,7 @@ cargo.rust_binary(
         ":tokio-1.39.2",
         ":tokio-postgres-0.7.11",
         ":tokio-postgres-rustls-0.11.1",
+        ":tokio-retry-0.3.0",
         ":tokio-serde-0.9.0",
         ":tokio-stream-0.1.15",
         ":tokio-test-0.4.4",
@@ -16443,6 +16444,34 @@ cargo.rust_library(
         ":tokio-postgres-0.7.11",
         ":tokio-rustls-0.25.0",
         ":x509-certificate-0.23.1",
+    ],
+)
+
+alias(
+    name = "tokio-retry",
+    actual = ":tokio-retry-0.3.0",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "tokio-retry-0.3.0.crate",
+    sha256 = "7f57eb36ecbe0fc510036adff84824dd3c24bb781e21bfa67b69d556aa85214f",
+    strip_prefix = "tokio-retry-0.3.0",
+    urls = ["https://static.crates.io/crates/tokio-retry/0.3.0/download"],
+    visibility = [],
+)
+
+cargo.rust_library(
+    name = "tokio-retry-0.3.0",
+    srcs = [":tokio-retry-0.3.0.crate"],
+    crate = "tokio_retry",
+    crate_root = "tokio-retry-0.3.0.crate/src/lib.rs",
+    edition = "2018",
+    visibility = [],
+    deps = [
+        ":pin-project-1.1.5",
+        ":rand-0.8.5",
+        ":tokio-1.39.2",
     ],
 )
 

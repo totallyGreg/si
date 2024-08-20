@@ -8,6 +8,8 @@ use std::sync::Arc;
 use telemetry_utils::metric;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
+use tokio_retry::Retry;
 use tracing::info;
 
 use tokio::time::Duration;
@@ -179,16 +181,20 @@ where
         loop {
             if let Some(id) = Self::pop_from_clean(me.clone()) {
                 debug!("PoolNoodle: cleaning instance {}", id);
-                match PoolNoodleInner::clean(id, &me.spec).await {
+                match Retry::spawn(
+                    ExponentialBackoff::from_millis(10)
+                        .factor(10)
+                        .map(jitter)
+                        .take(5),
+                    || async { PoolNoodleInner::clean(id, &me.spec).await },
+                )
+                .await
+                {
                     Ok(_) => {
-                        debug!("PoolNoodle: instance cleaned: {}", id);
+                        info!("PoolNoodle: instance cleaned: {}", id);
                         Self::push_to_unprepared(me.clone(), id)
                     }
-                    Err(e) => {
-                        warn!("PoolNoodle: failed to clean instance: {}", id);
-                        warn!("{:?}", e);
-                        Self::push_to_clean(me.clone(), id);
-                    }
+                    Err(_) => warn!("PoolNoodle: failed to clean instance after retries: {}", id),
                 }
             }
 
