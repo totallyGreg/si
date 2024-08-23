@@ -929,6 +929,10 @@ impl WorkspaceSnapshotGraphV2 {
                         format!("DependentValue\n{}", node_weight.value_id()),
                         "purple",
                     ),
+                    NodeWeight::FinishedDependentValueRoot(node_weight) => (
+                        format!("UnfinishedDependentValue\n{}", node_weight.value_id()),
+                        "blue",
+                    ),
                 };
                 let color = color.to_string();
                 let id = node_weight.id();

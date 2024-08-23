@@ -66,7 +66,7 @@ pub struct Config {
     #[builder(default = "random_instance_id()")]
     instance_id: String,
 
-    #[builder(default = "5000")]
+    #[builder(default = "250")]
     dvu_interval_millis: u64,
 }
 

@@ -28,6 +28,7 @@ use crate::layer_db_types::ContentTypes;
 use crate::slow_rt::SlowRuntimeError;
 use crate::workspace_snapshot::graph::detect_updates::Update;
 use crate::workspace_snapshot::graph::{RebaseBatch, WorkspaceSnapshotGraph};
+use crate::workspace_snapshot::DependentValueRoot;
 use crate::{
     change_set::{ChangeSet, ChangeSetId},
     job::{
@@ -684,7 +685,7 @@ impl DalContext {
     ) -> Result<(), WorkspaceSnapshotError> {
         for id in ids {
             self.workspace_snapshot()?
-                .add_dependent_value_root(id)
+                .add_dependent_value_root(DependentValueRoot::Unfinished(id.into()))
                 .await?;
         }
 

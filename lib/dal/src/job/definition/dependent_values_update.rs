@@ -28,6 +28,7 @@ use crate::{
     },
     prop::PropError,
     status::{StatusMessageState, StatusUpdate, StatusUpdateError},
+    workspace_snapshot::DependentValueRoot,
     AccessBuilder, AttributeValue, AttributeValueId, ComponentError, ComponentId, DalContext,
     TransactionsError, Visibility, WorkspacePk, WorkspaceSnapshotError, WsEvent, WsEventError,
 };
@@ -163,6 +164,16 @@ impl StatusUpdateTracker {
         Ok(tracker)
     }
 
+    fn started_components_count(&self) -> usize {
+        self.started_components.len()
+    }
+
+    fn would_start_component(&self, value_id: AttributeValueId) -> bool {
+        self.components_by_value
+            .get(&value_id)
+            .is_some_and(|component_id| !self.started_components.contains(component_id))
+    }
+
     fn start_value(&mut self, value_id: AttributeValueId) -> Option<ComponentId> {
         self.components_by_value
             .get(&value_id)
@@ -211,6 +222,9 @@ impl StatusUpdateTracker {
     }
 }
 
+const VERITECH_FUNCTION_LIMIT: usize = 64;
+const COMPONENT_LIMIT: usize = 16;
+
 impl DependentValuesUpdate {
     async fn inner_run(
         &self,
@@ -219,16 +233,17 @@ impl DependentValuesUpdate {
         let start = tokio::time::Instant::now();
         let span = Span::current();
         metric!(counter.dvu_concurrency_count = 1);
-        let node_ids = ctx.workspace_snapshot()?.take_dependent_values().await?;
+        let roots = ctx.workspace_snapshot()?.take_dependent_values().await?;
+
         // Calculate the inferred connection graph up front so we reuse it throughout the job and don't rebuild each time
         let inferred_connection_graph = InferredConnectionGraph::for_workspace(ctx).await?;
         ctx.workspace_snapshot()?
             .set_cached_inferred_connection_graph(Some(inferred_connection_graph))
             .await;
 
-        let mut dependency_graph = DependentValueGraph::new(ctx, node_ids).await?;
+        let mut dependency_graph = DependentValueGraph::new(ctx, roots).await?;
 
-        debug!(
+        info!(
             "DependentValueGraph calculation took: {:?}",
             start.elapsed()
         );
@@ -244,39 +259,62 @@ impl DependentValuesUpdate {
 
         let mut tracker = StatusUpdateTracker::new_for_values(ctx, all_value_ids).await?;
 
-        let mut seen_ids = HashSet::new();
+        let mut spawned_ids = HashSet::new();
         let mut task_id_to_av_id = HashMap::new();
         let mut update_join_set = JoinSet::new();
-        let mut independent_value_ids = dependency_graph.independent_values();
+        let mut independent_value_ids: HashSet<AttributeValueId> =
+            dependency_graph.independent_values().into_iter().collect();
+        let mut would_start_ids = HashSet::new();
 
         loop {
             if independent_value_ids.is_empty() && task_id_to_av_id.is_empty() {
                 break;
             }
 
-            for attribute_value_id in &independent_value_ids {
-                let attribute_value_id = attribute_value_id.to_owned(); // release our borrow
-                let parent_span = span.clone();
-                if !seen_ids.contains(&attribute_value_id) {
-                    let id = Ulid::new();
+            if independent_value_ids
+                .difference(&would_start_ids)
+                .next()
+                .is_none()
+            {
+                if task_id_to_av_id.is_empty() {
+                    break;
+                }
+            } else {
+                for attribute_value_id in &independent_value_ids {
+                    let attribute_value_id = *attribute_value_id;
+                    let parent_span = span.clone();
+                    if !spawned_ids.contains(&attribute_value_id)
+                        && !would_start_ids.contains(&attribute_value_id)
+                    {
+                        let id = Ulid::new();
 
-                    let status_update = tracker
-                        .get_status_update(StatusMessageState::StatusStarted, attribute_value_id);
+                        if tracker.would_start_component(attribute_value_id)
+                            && tracker.started_components_count() == COMPONENT_LIMIT
+                        {
+                            would_start_ids.insert(attribute_value_id);
+                            continue;
+                        }
 
-                    update_join_set.spawn(
-                        values_from_prototype_function_execution(
-                            id,
-                            ctx.clone(),
+                        let status_update = tracker.get_status_update(
+                            StatusMessageState::StatusStarted,
                             attribute_value_id,
-                            self.set_value_lock.clone(),
-                            status_update,
-                        )
-                        .instrument(info_span!(parent: parent_span, "dependent_values_update.values_from_prototype_function_execution",
-                            attribute_value.id = %attribute_value_id,
-                        )),
-                    );
-                    task_id_to_av_id.insert(id, attribute_value_id);
-                    seen_ids.insert(attribute_value_id);
+                        );
+
+                        update_join_set.spawn(
+                                values_from_prototype_function_execution(
+                                    id,
+                                    ctx.clone(),
+                                    attribute_value_id,
+                                    self.set_value_lock.clone(),
+                                    status_update,
+                                )
+                                .instrument(info_span!(parent: parent_span, "dependent_values_update.values_from_prototype_function_execution",
+                                    attribute_value.id = %attribute_value_id,
+                                )),
+                            );
+                        task_id_to_av_id.insert(id, attribute_value_id);
+                        spawned_ids.insert(attribute_value_id);
+                    }
                 }
             }
 
@@ -361,19 +399,21 @@ impl DependentValuesUpdate {
                 }
             }
 
-            independent_value_ids = dependency_graph.independent_values();
+            independent_value_ids = dependency_graph.independent_values().into_iter().collect();
         }
 
-        // If we encounter a failure in a value above, we may not process the
-        // downstream attributes and thus will fail to send the "finish" update.
-        // This will process any remaining components in the tracker.
-        for status_update in tracker.finish_remaining() {
-            if let Err(err) = send_status_update(ctx, status_update).await {
-                error!(si.error.message = ?err, "status update finished event send for leftover component");
+        let snap = ctx.workspace_snapshot()?;
+        for value_id in independent_value_ids {
+            if spawned_ids.contains(&value_id) {
+                snap.add_dependent_value_root(DependentValueRoot::Finished(value_id.into()))
+                    .await?;
+            } else {
+                snap.add_dependent_value_root(DependentValueRoot::Unfinished(value_id.into()))
+                    .await?;
             }
         }
 
-        debug!("DependentValuesUpdate took: {:?}", start.elapsed());
+        info!("DependentValuesUpdate took: {:?}", start.elapsed());
 
         ctx.commit().await?;
         metric!(counter.dvu_concurrency_count = -1);

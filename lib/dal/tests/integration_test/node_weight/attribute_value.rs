@@ -35,7 +35,7 @@ async fn change_in_output_component_produces_dvu_root_in_other_change_set(ctx: &
     assert!(ctx
         .workspace_snapshot()
         .expect("get snap")
-        .list_dependent_value_value_ids()
+        .get_dependent_value_roots()
         .await
         .expect("able to get dvu values")
         .contains(&image.attribute_value(ctx).await.id().into()));
