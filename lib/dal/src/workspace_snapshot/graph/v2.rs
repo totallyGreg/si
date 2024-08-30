@@ -139,15 +139,6 @@ impl WorkspaceSnapshotGraphV2 {
         Ok(())
     }
 
-    #[inline(always)]
-    pub fn get_latest_node_idx(
-        &self,
-        node_idx: NodeIndex,
-    ) -> WorkspaceSnapshotGraphResult<NodeIndex> {
-        let node_id = self.get_node_weight(node_idx)?.id();
-        self.get_node_index_by_id(node_id)
-    }
-
     fn add_edge_inner(
         &mut self,
         from_node_index: NodeIndex,

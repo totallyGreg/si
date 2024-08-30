@@ -90,6 +90,11 @@ pub async fn set_component_position(
             }
         }
 
+        let family_tree = ctx.workspace_snapshot()?.get_component_family_tree().await;
+
+        dbg!(family_tree.all_parents_of(id));
+        dbg!(family_tree.direct_parents_of(id));
+
         let (width, height) = {
             let mut size = (None, None);
 

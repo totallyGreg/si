@@ -21,6 +21,7 @@
 //     clippy::missing_panics_doc
 // )]
 
+pub mod component_family_tree;
 pub mod content_address;
 pub mod edge_weight;
 pub mod graph;
@@ -30,6 +31,7 @@ pub mod node_weight;
 pub mod update;
 pub mod vector_clock;
 
+use component_family_tree::ComponentFamilyTree;
 use graph::correct_transforms::correct_transforms;
 use graph::detect_updates::Update;
 use graph::{RebaseBatch, WorkspaceSnapshotGraph};
@@ -37,6 +39,7 @@ use node_weight::traits::CorrectTransformsError;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tokio::time::Instant;
 
 use petgraph::prelude::*;
 pub use petgraph::Direction;
@@ -1518,6 +1521,15 @@ impl WorkspaceSnapshot {
         maybe_graph: Option<InferredConnectionGraph>,
     ) {
         *self.inferred_connection_graph.write().await = maybe_graph;
+    }
+
+    pub async fn get_component_family_tree(&self) -> ComponentFamilyTree {
+        let start = Instant::now();
+        let working_copy = self.working_copy().await;
+        let family_tree = ComponentFamilyTree::generate(&working_copy);
+        info!("generated family tree in {:?}", start.elapsed());
+
+        family_tree
     }
 
     /// If this node is associated to a single av, return it

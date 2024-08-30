@@ -888,6 +888,12 @@ async fn simple_down_frames_no_nesting(ctx: &mut DalContext) {
         .await
         .expect("could not commit and update snapshot to visibility");
 
+    let family_tree = ctx
+        .workspace_snapshot()
+        .expect("getsnap")
+        .get_component_family_tree()
+        .await;
+
     // the output socket value is updated with 1
     let output_value = get_component_output_socket_value(ctx, even_frame_component_id, "one")
         .await
