@@ -2591,7 +2591,10 @@ cargo.rust_library(
     crate = "concurrent_queue",
     crate_root = "concurrent-queue-2.5.0.crate/src/lib.rs",
     edition = "2021",
-    features = ["std"],
+    features = [
+        "default",
+        "std",
+    ],
     visibility = [],
     deps = [":crossbeam-utils-0.8.20"],
 )
@@ -16031,6 +16034,7 @@ cargo.rust_binary(
         ":vfs-0.12.0",
         ":vfs-tar-0.4.1",
         ":webpki-roots-0.25.4",
+        ":work-queue-0.1.4",
         ":xxhash-rust-0.8.12",
         ":y-sync-0.4.0",
         ":yrs-0.17.4",
@@ -18782,6 +18786,49 @@ cargo.rust_library(
     ],
     visibility = [],
     deps = [":memchr-2.7.4"],
+)
+
+alias(
+    name = "work-queue",
+    actual = ":work-queue-0.1.4",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "work-queue-0.1.4.crate",
+    sha256 = "f1c8d5eab11a669da42347cdd5244563592edabfe06c7778553185ffeedb623d",
+    strip_prefix = "work-queue-0.1.4",
+    urls = ["https://static.crates.io/crates/work-queue/0.1.4/download"],
+    visibility = [],
+)
+
+cargo.rust_library(
+    name = "work-queue-0.1.4",
+    srcs = [":work-queue-0.1.4.crate"],
+    crate = "work_queue",
+    crate_root = "work-queue-0.1.4.crate/src/lib.rs",
+    edition = "2018",
+    platform = {
+        "linux-arm64": dict(
+            deps = [":concurrent-queue-2.5.0"],
+        ),
+        "linux-x86_64": dict(
+            deps = [":concurrent-queue-2.5.0"],
+        ),
+        "macos-arm64": dict(
+            deps = [":concurrent-queue-2.5.0"],
+        ),
+        "macos-x86_64": dict(
+            deps = [":concurrent-queue-2.5.0"],
+        ),
+        "windows-gnu": dict(
+            deps = [":concurrent-queue-2.5.0"],
+        ),
+        "windows-msvc": dict(
+            deps = [":concurrent-queue-2.5.0"],
+        ),
+    },
+    visibility = [],
 )
 
 http_archive(

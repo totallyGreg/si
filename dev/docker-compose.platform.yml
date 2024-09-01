@@ -151,6 +151,8 @@ services:
     #environment:
     #  - "SI_OTEL_COL__HONEYCOMB_API_KEY=SOE2nLJba2Fe1xU0pR3zMG"
     #  - "SI_OTEL_COL__CONFIG_PATH=/etc/otelcol/honeycomb-config.yaml"
+    volumes:
+      - ./otel-col-config/:/etc/otelcol/
     ports:
       - "4317:4317"
       - "4318:4318"

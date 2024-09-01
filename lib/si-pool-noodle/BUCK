@@ -25,6 +25,7 @@ rust_library(
         "//third-party/rust:tokio",
         "//third-party/rust:tokio-util",
         "//third-party/rust:tracing",
+        "//third-party/rust:work-queue",
     ],
     srcs = glob(["src/**/*.rs"]),
     test_unit_deps = [
