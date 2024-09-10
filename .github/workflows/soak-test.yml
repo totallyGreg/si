@@ -128,9 +128,30 @@ jobs:
           --token "$TOKEN" \
           --tests "${{ inputs.test }}" \
           --profile '{"maxDuration":${{ inputs.maxDuration }}, "rate": ${{ inputs.rate }}, "useJitter": ${{ inputs.useJitter }} }' \
-          --reportFile report.json
-          cat report.json
-          echo "report=$(cat report.json | jq -c)" >> "$GITHUB_OUTPUT"
+          --reportFile report-${{ matrix.tests }}.json
+          pwd
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.tests }}.json
+          path: ./**/report-${{ matrix.tests }}.json
+
+  gather-reports:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: api-test
+    if: always()
+    steps:
+    - name: Download all reports
+      uses: actions/download-artifact@v4
+      with:
+        path: ./reports
+
+    - name: Concatenate reports
+      run: |
+        ls -lah ./reports
+        jq -s '[.[].[]]' ./reports/*.json > all_reports.json
 
   stop-marker:
     runs-on: ubuntu-latest
@@ -142,12 +163,3 @@ jobs:
           curl https://api.honeycomb.io/1/markers/sdf -X POST \
               -H "X-Honeycomb-Team: ${{ secrets.HONEYCOMB_API_KEY }}" \
              -d '{"message":" '"Completing soak test in ${{ inputs.environment }}."' ", "type":"soak-test-stop"}'
-
-  gather-reports:
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    needs: api-test
-    if: always()
-    steps:
-      - run: |
-          echo ${{ needs.api-test.outputs.report }}

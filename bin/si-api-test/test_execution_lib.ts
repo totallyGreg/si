@@ -51,6 +51,7 @@ export async function printTestReport(
   console.log(reportString);
 
   if (reportFile) {
+    console.log(`Writing report to ${reportFile}`);
     await Deno.writeTextFile(`./${reportFile}`, reportString);
   }
 }
