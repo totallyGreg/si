@@ -19,12 +19,11 @@ import {
 import { resendAuth0EmailVerification } from "../services/auth0.service";
 import { tracker } from "../lib/tracker";
 import { extractAdminAuthUser, extractAuthUser, router } from ".";
+import { isLoggedIn } from "./index";
 
 router.get("/whoami", async (ctx) => {
   // user must be logged in
-  if (!ctx.state.authUser) {
-    throw new ApiError("Unauthorized", "You are not logged in");
-  }
+  isLoggedIn(ctx.state.authUser);
 
   ctx.body = {
     user: ctx.state.authUser,
@@ -331,18 +330,15 @@ router.post("/users/:userId/resend-email-verification", async (ctx) => {
 });
 
 router.get("/tos-details", async (ctx) => {
-  if (!ctx.state.authUser) {
-    throw new ApiError("Unauthorized", "You are not logged in");
-  }
+  isLoggedIn(ctx.state.authUser);
+
   const latestTosVersion = await findLatestTosForUser(ctx.state.authUser);
   ctx.body = { tosVersion: latestTosVersion };
 });
 
 router.post("/tos-agreement", async (ctx) => {
   // user must be logged in
-  if (!ctx.state.authUser) {
-    throw new ApiError("Unauthorized", "You are not logged in");
-  }
+  isLoggedIn(ctx.stat.authUser);
 
   const reqBody = validate(
     ctx.request.body,

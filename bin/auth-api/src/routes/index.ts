@@ -8,6 +8,7 @@ import {
   CustomRouteContext,
 } from "../custom-state";
 import { ApiError } from "../lib/api-error";
+import { UserWithTosStatus } from "../services/users.service";
 
 const __dirname = getThisDirname(import.meta.url);
 
@@ -15,12 +16,18 @@ const __dirname = getThisDirname(import.meta.url);
 // There's a set of helpers both here and on specific route files that allow us
 // to centralize error handling and make TS happier when dealing with params
 
-/// Return auth user and fail if not present
-export function extractAuthUser(ctx: CustomRouteContext) {
-  const authUser = ctx.state.authUser;
+/// Check if the user is logged in
+export function isLoggedIn(authUser: UserWithTosStatus | undefined) {
   if (!authUser) {
     throw new ApiError("Unauthorized", "You are not logged in");
   }
+}
+
+/// Return auth user and fail if not present
+export function extractAuthUser(ctx: CustomRouteContext) {
+  const authUser = ctx.state.authUser;
+
+  isLoggedIn(authUser);
 
   if (authUser.quarantinedAt !== null) {
     throw new ApiError("Unauthorized", `This account (ID ${authUser.id}) is quarantined. Contact SI support`);
