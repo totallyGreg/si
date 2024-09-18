@@ -343,83 +343,103 @@ impl SchemaVariantSpec {
         input_sockets: &[String],
         output_sockets: &[String],
         identity_func_spec_id: &str,
+        unset_func_spec_id: &str,
     ) -> (Vec<SocketSpec>, Vec<MergeSkip>) {
         let mut merged_sockets = vec![];
         let mut merge_skips = vec![];
 
         let self_prop_map = self_root.build_prop_spec_index_map();
 
-        for socket in &self.sockets {
-            // Does this socket exist in other?
-            if let Some(other_socket) = other_spec
+        for this_socket in &self.sockets {
+            // Does this socket exist in other? If it doesn't, push it onto the merged sockets list
+            // and continue.
+            let other_socket = match other_spec
                 .sockets
                 .iter()
-                .find(|sock| sock.name == socket.name && sock.kind() == socket.kind())
+                .find(|sock| sock.name == this_socket.name && sock.kind() == this_socket.kind())
             {
-                let this_socket_maybe_func_unique_id = socket
-                    .data
-                    .as_ref()
-                    .and_then(|data| data.func_unique_id.to_owned());
+                Some(other_socket) => other_socket,
+                None => {
+                    merged_sockets.push(this_socket.to_owned());
+                    continue;
+                }
+            };
 
-                let other_maybe_func_unique_id = other_socket
-                    .data
-                    .as_ref()
-                    .and_then(|data| data.func_unique_id.to_owned());
+            let this_socket_maybe_func_unique_id = this_socket
+                .data
+                .as_ref()
+                .and_then(|data| data.func_unique_id.to_owned());
 
-                match (this_socket_maybe_func_unique_id, other_maybe_func_unique_id) {
-                    (None, None) | (Some(_), None) => {
-                        merged_sockets.push(socket.to_owned());
-                    }
-                    (None, Some(other_socket_func_unique_id)) => {
-                        // If the other is identity, and we have no function,
-                        // then the "value from" has been removed in our spec
-                        if other_socket_func_unique_id != identity_func_spec_id {
-                            let new_merge_skips = PropSpec::get_input_mismatches(
-                                &socket.name,
-                                InputMismatchTruth::PropSpecMap(&self_prop_map),
-                                other_socket.inputs.as_slice(),
-                                &other_socket_func_unique_id,
-                                input_sockets,
-                                output_sockets,
-                            );
+            let other_maybe_func_unique_id = other_socket
+                .data
+                .as_ref()
+                .and_then(|data| data.func_unique_id.to_owned());
 
-                            if !new_merge_skips.is_empty() {
-                                merge_skips.extend(new_merge_skips.into_iter());
-                                merged_sockets.push(socket.to_owned());
-                            } else {
-                                merged_sockets.push(other_socket.to_owned());
-                            }
+            match (this_socket_maybe_func_unique_id, other_maybe_func_unique_id) {
+                (None, None) | (Some(_), None) => {
+                    // In any scenario where the "other"'s func unique ID is empty, we need to push
+                    // the socket onto the merged sockets list.
+                    merged_sockets.push(this_socket.to_owned());
+                }
+                (None, Some(other_socket_func_unique_id)) => {
+                    // If the socket's only has a unique func ID in "other", then we need to find
+                    // input mismatches if the func is the identity func.
+                    if other_socket_func_unique_id == identity_func_spec_id {
+                        let new_merge_skips = PropSpec::get_input_mismatches(
+                            &this_socket.name,
+                            InputMismatchTruth::PropSpecMap(&self_prop_map),
+                            other_socket.inputs.as_slice(),
+                            &other_socket_func_unique_id,
+                            input_sockets,
+                            output_sockets,
+                        );
+
+                        // If we did not find any input mismatches, we can just push the other
+                        // socket into our merged sockets list. If we did find input mismatches, we
+                        // need to process them and push the "this" socket into the list.
+                        if new_merge_skips.is_empty() {
+                            merged_sockets.push(other_socket.to_owned());
                         } else {
-                            merged_sockets.push(socket.to_owned());
+                            merge_skips.extend(new_merge_skips.into_iter());
+                            merged_sockets.push(this_socket.to_owned());
                         }
+                    } else {
+                        // If the func is not the identity func, just push the "this" socket.
+                        merged_sockets.push(this_socket.to_owned());
                     }
-                    (Some(this_socket_func_unique_id), Some(other_socket_func_unique_id)) => {
-                        if this_socket_func_unique_id == other_socket_func_unique_id
-                            && this_socket_func_unique_id == identity_func_spec_id
-                        {
-                            merged_sockets.push(socket.to_owned());
-                        } else if other_socket_func_unique_id != identity_func_spec_id {
-                            let new_merge_skips = PropSpec::get_input_mismatches(
-                                &socket.name,
-                                InputMismatchTruth::PropSpecMap(&self_prop_map),
-                                other_socket.inputs.as_slice(),
-                                &other_socket_func_unique_id,
-                                input_sockets,
-                                output_sockets,
-                            );
+                }
+                (Some(this_socket_func_unique_id), Some(other_socket_func_unique_id)) => {
+                    if this_socket_func_unique_id == other_socket_func_unique_id
+                        && (this_socket_func_unique_id == unset_func_spec_id
+                            || this_socket_func_unique_id == identity_func_spec_id)
+                    {
+                        // If the sockets have funcs, both funcs are the same, and they are either
+                        // identity or unset, then we push the "this" socket onto the list.
+                        merged_sockets.push(this_socket.to_owned());
+                    } else if other_socket_func_unique_id != identity_func_spec_id
+                        || other_socket_func_unique_id != unset_func_spec_id
+                    {
+                        // Otherwise, if the "other" socket's func is neither identity nor unset,
+                        // then we need to get input mistmatches and handle the merge skips in the
+                        // same manner as the above.
+                        let new_merge_skips = PropSpec::get_input_mismatches(
+                            &this_socket.name,
+                            InputMismatchTruth::PropSpecMap(&self_prop_map),
+                            other_socket.inputs.as_slice(),
+                            &other_socket_func_unique_id,
+                            input_sockets,
+                            output_sockets,
+                        );
 
-                            if !new_merge_skips.is_empty() {
-                                merge_skips.extend(new_merge_skips.into_iter());
-                                merged_sockets.push(socket.to_owned());
-                            } else {
-                                merged_sockets.push(other_socket.to_owned());
-                            }
+                        // Handle the input matches in the same way as before.
+                        if new_merge_skips.is_empty() {
+                            merged_sockets.push(other_socket.to_owned());
+                        } else {
+                            merge_skips.extend(new_merge_skips.into_iter());
+                            merged_sockets.push(this_socket.to_owned());
                         }
                     }
                 }
-            } else {
-                // Completely new socket, just add it to the list
-                merged_sockets.push(socket.to_owned())
             }
         }
 
@@ -439,6 +459,7 @@ impl SchemaVariantSpec {
         &self,
         other_spec: &Self,
         identity_func_unique_id: &str,
+        unset_func_unique_id: &str,
     ) -> (Self, Vec<MergeSkip>) {
         let mut schema_variant_builder = SchemaVariantSpec::builder();
         schema_variant_builder.version(&self.version);
@@ -462,7 +483,7 @@ impl SchemaVariantSpec {
             &other_root_prop,
             &self_input_sockets,
             &self_output_sockets,
-            identity_func_unique_id,
+            unset_func_unique_id,
         );
 
         // The prop spec is now merged, so we can use it for socket merges
@@ -472,6 +493,7 @@ impl SchemaVariantSpec {
             &self_input_sockets,
             &self_output_sockets,
             identity_func_unique_id,
+            unset_func_unique_id,
         );
 
         schema_variant_builder.replace_roots(new_root);
@@ -888,7 +910,7 @@ mod tests {
             .build()
             .expect("build sv");
 
-        let (merged_sv, skips) = sv_2.merge_prototypes_from(&sv_1, "identity");
+        let (merged_sv, skips) = sv_2.merge_prototypes_from(&sv_1, "identity", "unset");
 
         assert_eq!(
             &[

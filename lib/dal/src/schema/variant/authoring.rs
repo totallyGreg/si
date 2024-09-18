@@ -86,6 +86,8 @@ pub enum VariantAuthoringError {
     PkgMissingSchema,
     #[error("constructed package has no schema variant node")]
     PkgMissingSchemaVariant,
+    #[error("constructed package has no unset function")]
+    PkgMissingUnsetFunc,
     #[error("prop error: {0}")]
     Prop(#[from] PropError),
     #[error("schema error: {0}")]
@@ -302,49 +304,52 @@ impl VariantAuthoringClient {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[instrument(name = "variant.authoring.update_variant", level = "info", skip_all)]
+    #[instrument(
+        name = "variant.authoring.regenerate_variant",
+        level = "info",
+        skip(ctx)
+    )]
     pub async fn regenerate_variant(
         ctx: &DalContext,
-        sv_id: SchemaVariantId,
+        schema_variant_id: SchemaVariantId,
     ) -> VariantAuthoringResult<SchemaVariantId> {
-        let sv = SchemaVariant::get_by_id_or_error(ctx, sv_id).await?;
+        let schema_variant = SchemaVariant::get_by_id_or_error(ctx, schema_variant_id).await?;
 
-        if sv.is_locked {
-            return Err(VariantAuthoringError::LockedVariant(sv_id));
+        if schema_variant.is_locked {
+            return Err(VariantAuthoringError::LockedVariant(schema_variant_id));
         };
 
-        let schema = sv.schema(ctx).await?;
+        let schema = schema_variant.schema(ctx).await?;
 
-        let components_in_use = SchemaVariant::list_component_ids(ctx, sv_id).await?;
+        let components_in_use = SchemaVariant::list_component_ids(ctx, schema_variant_id).await?;
 
         if components_in_use.is_empty() {
             Self::update_existing_variant_and_regenerate(
                 ctx,
-                sv_id,
+                schema_variant_id,
                 schema.name,
-                sv.display_name,
-                sv.category,
-                sv.color,
-                sv.link,
-                sv.description,
-                sv.component_type,
+                schema_variant.display_name,
+                schema_variant.category,
+                schema_variant.color,
+                schema_variant.link,
+                schema_variant.description,
+                schema_variant.component_type,
             )
             .await?;
-            Ok(sv_id)
+            Ok(schema_variant_id)
         } else {
-            let original_is_default = sv.is_default(ctx).await?;
+            let original_is_default = schema_variant.is_default(ctx).await?;
 
             let new_variant = Self::generate_variant_with_updates(
                 ctx,
-                sv_id,
+                schema_variant_id,
                 &schema.name,
-                sv.display_name,
-                sv.category,
-                sv.color,
-                sv.link,
-                sv.description,
-                sv.component_type,
+                schema_variant.display_name,
+                schema_variant.category,
+                schema_variant.color,
+                schema_variant.link,
+                schema_variant.description,
+                schema_variant.component_type,
             )
             .await?;
 
@@ -361,7 +366,7 @@ impl VariantAuthoringClient {
                     .await?;
             }
 
-            SchemaVariant::get_by_id_or_error(ctx, sv_id)
+            SchemaVariant::get_by_id_or_error(ctx, schema_variant_id)
                 .await?
                 .lock(ctx)
                 .await?;
@@ -867,14 +872,36 @@ async fn build_variant_spec_based_on_existing_variant(
     let (existing_variant_spec, variant_funcs) =
         PkgExporter::export_variant_standalone(ctx, &existing_variant, schema.name(), None).await?;
 
-    let identity_name = IntrinsicFunc::Identity.name();
-    let identity_func = variant_funcs
-        .iter()
-        .find(|f| f.name == identity_name)
-        .ok_or(VariantAuthoringError::PkgMissingIdentityFunc)?;
+    let (identity_func, unset_func) = {
+        let identity_name = IntrinsicFunc::Identity.name();
+        let unset_name = IntrinsicFunc::Unset.name();
 
-    let (merged_variant, skips) =
-        variant_spec.merge_prototypes_from(&existing_variant_spec, &identity_func.unique_id);
+        let mut maybe_identity_func = None;
+        let mut maybe_unset_func = None;
+
+        for func in variant_funcs.iter() {
+            if func.name.as_str() == identity_name {
+                maybe_identity_func = Some(func);
+            } else if func.name.as_str() == unset_name {
+                maybe_unset_func = Some(func);
+            }
+
+            if maybe_identity_func.is_some() && maybe_unset_func.is_some() {
+                break;
+            }
+        }
+
+        (
+            maybe_identity_func.ok_or(VariantAuthoringError::PkgMissingIdentityFunc)?,
+            maybe_unset_func.ok_or(VariantAuthoringError::PkgMissingIdentityFunc)?,
+        )
+    };
+
+    let (merged_variant, skips) = variant_spec.merge_prototypes_from(
+        &existing_variant_spec,
+        &identity_func.unique_id,
+        &unset_func.unique_id,
+    );
 
     Ok((merged_variant, skips, variant_funcs))
 }

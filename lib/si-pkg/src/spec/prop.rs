@@ -380,7 +380,7 @@ impl PropSpec {
         other: &PropSpec,
         input_sockets: &[String],
         output_sockets: &[String],
-        identity_func_unique_id: &str,
+        unset_func_unique_id: &str,
     ) -> (PropSpec, Vec<MergeSkip>) {
         let other_map = other.build_prop_spec_index_map();
         let mut self_map = self.build_prop_spec_index_map();
@@ -415,13 +415,12 @@ impl PropSpec {
                 } else if let (Some(other_func_unique_id), Some(other_inputs)) =
                     (other_prop_spec.func_unique_id(), other_prop_spec.inputs())
                 {
-                    // If the func on the matching prop in other is identity,
-                    // then the func should be completely controlled by the
-                    // asset definition. If it is something else, then it's a
-                    // custom attr func and it currently is not part of the
-                    // asset definition, so we want to copy it over to preserve
-                    // asset funcs.
-                    if other_func_unique_id != identity_func_unique_id {
+                    // If the func on the matching prop in other is unset, then the func should be
+                    // completely controlled by the asset definition. If it is something else,
+                    // then it's a custom attribute func or an intrinsic. In that case, it
+                    // is currently is not part of the  asset definition, so we want to copy it
+                    // over to preserve asset funcs.
+                    if other_func_unique_id != unset_func_unique_id {
                         let mismatches = Self::get_input_mismatches(
                             current_path,
                             InputMismatchTruth::PropSpecMap(&self_map),
@@ -900,7 +899,7 @@ mod tests {
             .expect("able to build");
 
         let (merged_prop_root, merge_skips) =
-            prop_tree_b.merge_with(&prop_tree_a, &[], &[], "identity");
+            prop_tree_b.merge_with(&prop_tree_a, &[], &[], "unset");
 
         // Confirm merge skips are correct
         assert_eq!(
