@@ -69,6 +69,7 @@ use crate::{
 pub mod code;
 pub mod debug;
 pub mod diff;
+pub mod florp;
 pub mod frame;
 pub mod inferred_connection_graph;
 pub mod properties;
@@ -415,7 +416,7 @@ impl Component {
     );
 
     #[instrument(
-        name = "component.new", 
+        name = "component.new",
         level = "info",
         skip_all,
         fields(

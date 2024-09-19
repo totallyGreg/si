@@ -1631,4 +1631,24 @@ impl WorkspaceSnapshot {
             .schema_id_for_schema_variant_id(schema_variant_id)
             .map_err(Into::into)
     }
+
+    pub async fn schema_variant_id_for_component_id(
+        &self,
+        component_id: ComponentId,
+    ) -> WorkspaceSnapshotResult<SchemaVariantId> {
+        self.working_copy()
+            .await
+            .schema_variant_id_for_component_id(component_id)
+            .map_err(Into::into)
+    }
+
+    pub async fn frame_contains_components(
+        &self,
+        component_id: ComponentId,
+    ) -> WorkspaceSnapshotResult<Option<Vec<ComponentId>>> {
+        self.working_copy()
+            .await
+            .frame_contains_components(component_id)
+            .map_err(Into::into)
+    }
 }
