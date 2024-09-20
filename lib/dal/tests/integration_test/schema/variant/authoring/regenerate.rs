@@ -333,16 +333,39 @@ async fn retain_bindings(ctx: &mut DalContext) {
                         identity_func_argument_id,         // expected
                         argument_binding.func_argument_id  // actual
                     );
-                    assert_eq!(
-                        AttributeFuncArgumentSource::Prop(alpha_source_prop_id), // expected
-                        argument_binding.attribute_func_input_location           // actual
-                    );
+                    // assert_eq!(
+                    //     AttributeFuncArgumentSource::Prop(alpha_source_prop_id), // expected
+                    //     argument_binding.attribute_func_input_location           // actual
+                    // );
+                    {
+                        // let alpha_source = Prop::get_by_id_or_error(ctx, alpha_source_prop_id)
+                        //     .await
+                        //     .unwrap();
+                        let real_id = match argument_binding.attribute_func_input_location {
+                            AttributeFuncArgumentSource::Prop(id) => id,
+                            _ => panic!(),
+                        };
+                        let alpha_source_real =
+                            Prop::get_by_id_or_error(ctx, real_id).await.unwrap();
+                        // let alpha_destination =
+                        //     Prop::get_by_id_or_error(ctx, alpha_destination_prop_id)
+                        //         .await
+                        //         .unwrap();
+                        let alpha_destination_real =
+                            Prop::get_by_id_or_error(ctx, prop_id).await.unwrap();
+                        dbg!(
+                            // alpha_source,
+                            alpha_source_real,
+                            // alpha_destination,
+                            alpha_destination_real
+                        );
+                    }
                 }
                 AttributeFuncDestination::OutputSocket(output_socket_id) => {
-                    assert_eq!(
-                        beta_destination_output_socket_id, // expected
-                        output_socket_id                   // actual
-                    );
+                    // assert_eq!(
+                    //     beta_destination_output_socket_id, // expected
+                    //     output_socket_id                   // actual
+                    // );
                     let argument_binding = binding
                         .argument_bindings
                         .pop()
@@ -352,16 +375,43 @@ async fn retain_bindings(ctx: &mut DalContext) {
                         identity_func_argument_id,         // expected
                         argument_binding.func_argument_id  // actual
                     );
-                    assert_eq!(
-                        AttributeFuncArgumentSource::Prop(beta_source_prop_id), // expected
-                        argument_binding.attribute_func_input_location          // actual
-                    );
+                    // assert_eq!(
+                    //     AttributeFuncArgumentSource::Prop(beta_source_prop_id), // expected
+                    //     argument_binding.attribute_func_input_location          // actual
+                    // );
+                    {
+                        // let beta_source = Prop::get_by_id_or_error(ctx, beta_source_prop_id)
+                        //     .await
+                        //     .unwrap();
+                        let real_id = match argument_binding.attribute_func_input_location {
+                            AttributeFuncArgumentSource::Prop(id) => id,
+                            _ => panic!(),
+                        };
+                        let beta_source_real =
+                            Prop::get_by_id_or_error(ctx, real_id).await.unwrap();
+                        // let beta_destination =
+                        //     OutputSocket::get_by_id(ctx, beta_destination_output_socket_id)
+                        //         .await
+                        //         .unwrap();
+                        let beta_destination_real = OutputSocket::get_by_id(ctx, output_socket_id)
+                            .await
+                            .unwrap();
+                        dbg!(
+                            // beta_source,
+                            beta_source_real,
+                            // beta_destination,
+                            beta_destination_real
+                        );
+                    }
                 }
                 output_location => panic!("unexpected output location: {output_location:?}"),
             },
             inner_binding => panic!("unexpected binding kind: {inner_binding:?}"),
         }
     }
+
+    // TODO(nick): remove when we can be sure this works.
+    assert!(false);
 }
 
 // Mimics the behavior in "v2/func/binding/create_binding" for output sockets.

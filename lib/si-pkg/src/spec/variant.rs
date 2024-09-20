@@ -370,12 +370,22 @@ impl SchemaVariantSpec {
                 .as_ref()
                 .and_then(|data| data.func_unique_id.to_owned());
 
-            let other_maybe_func_unique_id = other_socket
+            let other_socket_maybe_func_unique_id = other_socket
                 .data
                 .as_ref()
                 .and_then(|data| data.func_unique_id.to_owned());
 
-            match (this_socket_maybe_func_unique_id, other_maybe_func_unique_id) {
+            dbg!(
+                this_socket,
+                other_socket,
+                &this_socket_maybe_func_unique_id,
+                &other_socket_maybe_func_unique_id
+            );
+
+            match (
+                this_socket_maybe_func_unique_id,
+                other_socket_maybe_func_unique_id,
+            ) {
                 (None, None) | (Some(_), None) => {
                     // In any scenario where the "other"'s func unique ID is empty, we need to push
                     // the socket onto the merged sockets list.
@@ -384,7 +394,7 @@ impl SchemaVariantSpec {
                 (None, Some(other_socket_func_unique_id)) => {
                     // If the socket's only has a unique func ID in "other", then we need to find
                     // input mismatches if the func is the identity func.
-                    if other_socket_func_unique_id == identity_func_spec_id {
+                    if other_socket_func_unique_id != unset_func_spec_id {
                         let new_merge_skips = PropSpec::get_input_mismatches(
                             &this_socket.name,
                             InputMismatchTruth::PropSpecMap(&self_prop_map),
@@ -483,6 +493,7 @@ impl SchemaVariantSpec {
             &other_root_prop,
             &self_input_sockets,
             &self_output_sockets,
+            identity_func_unique_id,
             unset_func_unique_id,
         );
 
@@ -492,7 +503,8 @@ impl SchemaVariantSpec {
             other_spec,
             &self_input_sockets,
             &self_output_sockets,
-            identity_func_unique_id,
+            // identity_func_unique_id,
+            unset_func_unique_id,
             unset_func_unique_id,
         );
 
