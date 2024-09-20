@@ -134,7 +134,7 @@ async fn find_or_create_user_and_workspace(
             .await?;
 
             if create_permission {
-                let workspace = Workspace::new(
+                let workspace = Workspace::new_with_on_demand_assets(
                     &mut ctx,
                     auth_api_workspace.id,
                     auth_api_workspace.display_name.clone(),
@@ -171,7 +171,7 @@ async fn find_or_create_user_and_workspace(
     // ensure workspace is associated to user
     user.associate_workspace(&ctx, *workspace.pk()).await?;
 
-    ctx.commit().await?;
+    ctx.commit_no_rebase().await?;
 
     Ok((user, workspace))
 }

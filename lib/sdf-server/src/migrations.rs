@@ -1,15 +1,19 @@
-use std::{future::IntoFuture as _, time::Duration};
+use std::{collections::HashMap, future::IntoFuture as _, sync::Arc, time::Duration};
 
 use dal::{
-    builtins, pkg::PkgError, workspace_snapshot::migrator::SnapshotGraphMigrator, DalContext,
-    ServicesContext, Workspace,
+    builtins,
+    cached_module::{CachedModule, CachedModuleError},
+    pkg::PkgError,
+    slow_rt::{self, SlowRuntimeError},
+    workspace_snapshot::migrator::SnapshotGraphMigrator,
+    DalContext, ServicesContext, Workspace,
 };
 use module_index_client::{BuiltinsDetailsResponse, ModuleDetailsResponse, ModuleIndexClient};
 use si_pkg::SiPkg;
 use telemetry::prelude::*;
 use thiserror::Error;
 use tokio::{
-    task::JoinSet,
+    task::{JoinError, JoinSet},
     time::{self, Instant},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -22,6 +26,8 @@ use crate::{init, Config};
 pub enum MigratorError {
     #[error("error while initializing: {0}")]
     Init(#[from] init::InitError),
+    #[error("tokio join error: {0}")]
+    Join(#[from] JoinError),
     #[error("error while migrating builtins from module index: {0}")]
     MigrateBuiltins(#[source] Box<dyn std::error::Error + 'static + Sync + Send>),
     #[error("error while migrating dal database: {0}")]
@@ -30,8 +36,12 @@ pub enum MigratorError {
     MigrateLayerDbDatabase(#[source] si_layer_cache::LayerDbError),
     #[error("error while migrating snapshots: {0}")]
     MigrateSnapshots(#[source] Box<dyn std::error::Error + 'static + Sync + Send>),
+    #[error("module cache error: {0}")]
+    ModuleCache(#[from] CachedModuleError),
     #[error("module index url not set")]
     ModuleIndexNotSet,
+    #[error("slow runtime: {0}")]
+    SlowRuntime(#[from] SlowRuntimeError),
 }
 
 impl MigratorError {
@@ -83,7 +93,8 @@ impl Migrator {
         self.migrate_layer_db_database().await?;
         self.migrate_dal_database().await?;
         self.migrate_snapshots().await?;
-        self.migrate_builtins_from_module_index().await?;
+        //self.migrate_builtins_from_module_index().await?;
+        self.update_builtins_cache().await?;
         Ok(())
     }
 
@@ -187,6 +198,19 @@ impl Migrator {
 
         Ok(())
     }
+
+    pub async fn update_builtins_cache(&self) -> MigratorResult<()> {
+        let mut dal_context: dal::DalContextBuilder =
+            self.services_context.clone().into_builder(true);
+        dal_context.set_no_dependent_values();
+        let ctx = dal_context
+            .build_default()
+            .await
+            .map_err(MigratorError::migrate_builtins)?;
+        CachedModule::update_cached_modules(&ctx).await?;
+
+        Ok(())
+    }
 }
 
 async fn install_builtins(
@@ -274,5 +298,5 @@ async fn fetch_builtin(
         .await
         .map_err(MigratorError::migrate_builtins)?;
 
-    SiPkg::load_from_bytes(module).map_err(MigratorError::migrate_builtins)
+    SiPkg::load_from_bytes(&module).map_err(MigratorError::migrate_builtins)
 }
