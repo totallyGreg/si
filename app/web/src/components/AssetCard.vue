@@ -128,7 +128,9 @@ import {
 } from "@si/vue-lib/design-system";
 import { useRouter } from "vue-router";
 import { format as dateFormat } from "date-fns";
+import { AxiosResponse } from "axios";
 import { useAssetStore } from "@/store/asset.store";
+import { useChangeSetsStore, VoidOrNull } from "@/store/change_sets.store";
 import { SchemaVariantId, SchemaVariant } from "@/api/sdf/dal/schema";
 import { getAssetIcon } from "@/store/components.store";
 import { useModuleStore } from "@/store/module.store";
@@ -151,6 +153,8 @@ const installStatus = moduleStore.getRequestStatus(
   "INSTALL_REMOTE_MODULE",
   moduleStore.upgradeableModules[props.assetId]?.id,
 );
+
+const changesetStore = useChangeSetsStore();
 
 const contributeAssetModalRef =
   ref<InstanceType<typeof AssetContributeModal>>();
@@ -249,8 +253,16 @@ const createUnlockedVariantReqStatus = assetStore.getRequestStatus(
 
 const unlock = async () => {
   if (asset.value) {
+    let run: VoidOrNull = null;
+    if (changesetStore.headSelected) {
+      run = (resp: AxiosResponse) => {
+        assetStore.setSchemaVariantSelection(resp.data?.schemaVariantId);
+      };
+    }
+
     const resp = await assetStore.CREATE_UNLOCKED_COPY(
       asset.value.schemaVariantId,
+      run,
     );
     if (resp.result.success) {
       assetStore.setSchemaVariantSelection(resp.result.data?.schemaVariantId);

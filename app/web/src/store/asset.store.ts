@@ -11,7 +11,7 @@ import router from "@/router";
 import { PropKind } from "@/api/sdf/dal/prop";
 import { nonNullable } from "@/utils/typescriptLinter";
 import { useFuncStore } from "./func/funcs.store";
-import { useChangeSetsStore } from "./change_sets.store";
+import { useChangeSetsStore, VoidOrNull } from "./change_sets.store";
 import { useModuleStore } from "./module.store";
 import { useRealtimeStore } from "./realtime/realtime.store";
 import handleStoreError from "./errors";
@@ -467,7 +467,11 @@ export const useAssetStore = () => {
           });
         },
 
-        async CREATE_UNLOCKED_COPY(id: SchemaVariantId) {
+        async CREATE_UNLOCKED_COPY(
+          id: SchemaVariantId,
+          runOnNewChangeSet: VoidOrNull,
+        ) {
+          changeSetStore.onNewChangeSet = runOnNewChangeSet;
           if (changeSetStore.creatingChangeSet)
             throw new Error("race, wait until the change set is created");
           if (changeSetStore.headSelected)
