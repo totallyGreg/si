@@ -100,11 +100,7 @@ impl DependentValueGraph {
                 NodeWeightDiscriminants::AttributeValue => {
                     let initial_attribute_value_id: AttributeValueId = root_ulid.into();
 
-                    if unfinished
-                        && AttributeValue::is_set_by_dependent_function(
-                            ctx,
-                            initial_attribute_value_id,
-                        )
+                    if AttributeValue::is_set_by_dependent_function(ctx, initial_attribute_value_id)
                         .await?
                     {
                         self.values_that_need_to_execute_from_prototype_function
