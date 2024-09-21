@@ -1,4 +1,4 @@
-import { watch } from "vue";
+import { watch, nextTick } from "vue";
 import { defineStore } from "pinia";
 import * as _ from "lodash-es";
 import { addStoreHooks, ApiRequest } from "@si/vue-lib/pinia";
@@ -10,8 +10,9 @@ import keyedDebouncer from "@/utils/keyedDebouncer";
 import router from "@/router";
 import { PropKind } from "@/api/sdf/dal/prop";
 import { nonNullable } from "@/utils/typescriptLinter";
+import { ChangeSetId } from "@/api/sdf/dal/change_set";
 import { useFuncStore } from "./func/funcs.store";
-import { useChangeSetsStore, VoidOrNull } from "./change_sets.store";
+import { useChangeSetsStore } from "./change_sets.store";
 import { useModuleStore } from "./module.store";
 import { useRealtimeStore } from "./realtime/realtime.store";
 import handleStoreError from "./errors";
@@ -74,9 +75,14 @@ export const schemaVariantDisplayName = (schemaVariant: SchemaVariant) =>
     ? schemaVariant.schemaName
     : schemaVariant.displayName;
 
-export const useAssetStore = () => {
+export const useAssetStore = (forceChangeSetId?: ChangeSetId) => {
   const changeSetStore = useChangeSetsStore();
-  const changeSetId = changeSetStore.selectedChangeSetId;
+  let changeSetId: ChangeSetId | undefined;
+  if (forceChangeSetId) {
+    changeSetId = forceChangeSetId;
+  } else {
+    changeSetId = changeSetStore.selectedChangeSetId;
+  }
   const visibility = {
     // changeSetId should not be empty if we are actually using this store
     // so we can give it a bad value and let it throw an error
@@ -467,11 +473,7 @@ export const useAssetStore = () => {
           });
         },
 
-        async CREATE_UNLOCKED_COPY(
-          id: SchemaVariantId,
-          runOnNewChangeSet: VoidOrNull,
-        ) {
-          changeSetStore.onNewChangeSet = runOnNewChangeSet;
+        async CREATE_UNLOCKED_COPY(id: SchemaVariantId) {
           if (changeSetStore.creatingChangeSet)
             throw new Error("race, wait until the change set is created");
           if (changeSetStore.headSelected)
@@ -483,6 +485,27 @@ export const useAssetStore = () => {
             method: "post",
             url: API_PREFIX.concat([id]),
             keyRequestStatusBy: id,
+            onNewChangeSet: async (newChangeSetId, variant) => {
+              nextTick(() => {
+                // `this` store is not the same store that exists after the force change set
+                // and pinia_api_tools can't easily reference any stores
+                const newStore = useAssetStore(newChangeSetId);
+                // the API call for the variants list is in flight, so we need to watch when we get it
+                const watchForLoad = watch(
+                  () => Object.keys(newStore.variantFromListById).length,
+                  (newLen, _oldLen) => {
+                    if (newLen > 0) {
+                      // once we have it, set the variant, which will fetch the code
+                      newStore.setSchemaVariantSelection(
+                        variant.schemaVariantId,
+                      );
+                      // and close the watcher
+                      watchForLoad();
+                    }
+                  },
+                );
+              });
+            },
             onSuccess: (variant) => {
               const savedAssetIdx = this.variantList.findIndex(
                 (a) => a.schemaVariantId === variant.schemaVariantId,

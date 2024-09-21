@@ -3,7 +3,6 @@ import * as _ from "lodash-es";
 import { watch } from "vue";
 import { ApiRequest, addStoreHooks } from "@si/vue-lib/pinia";
 import { useToast } from "vue-toastification";
-import { AxiosResponse } from "axios";
 import {
   ChangeSet,
   ChangeSetId,
@@ -33,8 +32,6 @@ export interface OpenChangeSetsView {
   changeSets: ChangeSet[];
 }
 
-export type VoidOrNull = null | ((resp: AxiosResponse) => void);
-
 export function useChangeSetsStore() {
   const workspacesStore = useWorkspacesStore();
   const workspacePk = workspacesStore.selectedWorkspacePk;
@@ -52,7 +49,6 @@ export function useChangeSetsStore() {
         postAbandonActor: null as string | null,
         changeSetApprovals: {} as Record<UserId, string>,
         statusWithBase: {} as Record<ChangeSetId, StatusWithBase>,
-        onNewChangeSet: null as VoidOrNull,
       }),
       getters: {
         allChangeSets: (state) => _.values(state.changeSetsById),

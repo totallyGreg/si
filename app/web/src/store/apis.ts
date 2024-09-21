@@ -51,11 +51,6 @@ async function handleForcedChangesetRedirection(response: AxiosResponse) {
     await changeSetsStore.setActiveChangeset(
       response.headers.force_change_set_id,
     );
-
-    if (changeSetsStore.onNewChangeSet) {
-      changeSetsStore.onNewChangeSet(response);
-      changeSetsStore.onNewChangeSet = null;
-    }
   }
 
   return response;

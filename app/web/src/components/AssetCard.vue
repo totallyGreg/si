@@ -94,6 +94,7 @@
     </div>
     <!-- FIXME(nick): this probably needs to be moved and de-duped with logic in AssetListPanel -->
     <AssetContributeModal
+      v-if="contributeRequest"
       ref="contributeAssetModalRef"
       :contributeRequest="contributeRequest"
       @contribute-success="onContributeAsset"
@@ -128,9 +129,7 @@ import {
 } from "@si/vue-lib/design-system";
 import { useRouter } from "vue-router";
 import { format as dateFormat } from "date-fns";
-import { AxiosResponse } from "axios";
 import { useAssetStore } from "@/store/asset.store";
-import { useChangeSetsStore, VoidOrNull } from "@/store/change_sets.store";
 import { SchemaVariantId, SchemaVariant } from "@/api/sdf/dal/schema";
 import { getAssetIcon } from "@/store/components.store";
 import { useModuleStore } from "@/store/module.store";
@@ -154,8 +153,6 @@ const installStatus = moduleStore.getRequestStatus(
   moduleStore.upgradeableModules[props.assetId]?.id,
 );
 
-const changesetStore = useChangeSetsStore();
-
 const contributeAssetModalRef =
   ref<InstanceType<typeof AssetContributeModal>>();
 const contributeAssetSuccessModalRef = ref<InstanceType<typeof Modal>>();
@@ -163,7 +160,7 @@ const contributeAssetSuccessModalRef = ref<InstanceType<typeof Modal>>();
 const contributeAsset = () => contributeAssetModalRef.value?.open();
 const onContributeAsset = () => contributeAssetSuccessModalRef.value?.open();
 
-const contributeRequest = computed((): ModuleContributeRequest => {
+const contributeRequest = computed((): ModuleContributeRequest | null => {
   if (asset.value) {
     const version = dateFormat(Date.now(), "yyyyMMddkkmmss");
     return {
@@ -171,7 +168,7 @@ const contributeRequest = computed((): ModuleContributeRequest => {
       version,
       schemaVariantId: asset.value.schemaVariantId,
     };
-  } else throw new Error("cannot contribute: no asset selected");
+  } else return null;
 });
 
 const editingVersionDoesNotExist = computed<boolean>(
@@ -253,16 +250,8 @@ const createUnlockedVariantReqStatus = assetStore.getRequestStatus(
 
 const unlock = async () => {
   if (asset.value) {
-    let run: VoidOrNull = null;
-    if (changesetStore.headSelected) {
-      run = (resp: AxiosResponse) => {
-        assetStore.setSchemaVariantSelection(resp.data?.schemaVariantId);
-      };
-    }
-
     const resp = await assetStore.CREATE_UNLOCKED_COPY(
       asset.value.schemaVariantId,
-      run,
     );
     if (resp.result.success) {
       assetStore.setSchemaVariantSelection(resp.result.data?.schemaVariantId);
